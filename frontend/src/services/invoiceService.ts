@@ -64,12 +64,10 @@ export const fetchInvoiceCounts = async (): Promise<InvoiceCounts> => {
 export const uploadInvoices = async (files: File[]): Promise<UploadJob[]> => {
   const formData = new FormData();
   files.forEach((file) => {
-    formData.append("file", file);
+    formData.append("file", file, file.name);
   });
 
-  const { data } = await http.post<{ jobs: UploadJob[] }>("/ingest/files", formData, {
-    headers: { "Content-Type": "multipart/form-data" }
-  });
+  const { data } = await http.post<{ jobs: UploadJob[] }>("/ingest/files", formData);
 
   return data.jobs;
 };

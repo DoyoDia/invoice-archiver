@@ -57,18 +57,28 @@ const jobs = ref<Array<{ job_id: string; file_id: number; status: TaskStatus }>>
 const errorMessage = ref("");
 const successMessage = ref("");
 
-const handleBeforeUpload: UploadProps["beforeUpload"] = (file: UploadFile) => {
-  const isPdf = file.type === "application/pdf";
+const handleBeforeUpload: UploadProps["beforeUpload"] = (file) => {
+  const rawFile = file as unknown as File;
+  const isPdf = rawFile.type === "application/pdf";
   if (!isPdf) {
     message.error("仅支持 PDF 文件");
+    return false;
   }
-  const isLt100Mb = file.size / 1024 / 1024 <= 100;
+  const isLt100Mb = (rawFile.size || 0) / 1024 / 1024 <= 100;
   if (!isLt100Mb) {
     message.error("文件超过 100MB 限制");
+    return false;
   }
-  if (isPdf && isLt100Mb) {
-    fileList.value = [...fileList.value, file];
-  }
+  
+  const uploadFile: UploadFile = {
+    uid: `${Date.now()}-${Math.random()}`,
+    name: rawFile.name,
+    status: "done",
+    size: rawFile.size,
+    type: rawFile.type,
+    originFileObj: rawFile as any
+  };
+  fileList.value = [...fileList.value, uploadFile];
   return false;
 };
 
@@ -117,8 +127,13 @@ const submitUpload = async () => {
 
   try {
     const files = fileList.value
-      .map((item: UploadFile) => item.originFileObj)
-      .filter((value: UploadFile["originFileObj"]): value is File => Boolean(value));
+      .map((item: UploadFile) => item.originFileObj as File)
+      .filter((file): file is File => file instanceof File);
+    
+    if (files.length === 0) {
+      throw new Error("没有有效的文件可上传");
+    }
+    
     const result = await uploadInvoices(files);
     jobs.value = [...result, ...jobs.value];
     successMessage.value = `已提交 ${result.length} 个任务`;

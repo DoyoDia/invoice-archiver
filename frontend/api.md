@@ -3,6 +3,7 @@
 ## 概览
 - 版本：v1（基础路径 `/api`）
 - 鉴权：JWT，`Authorization: Bearer <token>`；角色：`uploader`、`viewer`、`admin`
+- DEMO Token：`uploader-token` / `viewer-token` / `admin-token`
 - 响应格式：`application/json`（导出接口除外）
 - 错误结构：统一 `error.code` 与异常表一致
 - 任务状态枚举：`queued`、`processing`、`finished`、`failed`、`dead_letter`
@@ -13,12 +14,6 @@
 | POST | /api/ingest/files | uploader/admin | 上传 PDF 并创建处理任务 |
 | GET | /api/jobs/{job_id} | 上传者本人/admin | 查询异步任务状态 |
 | GET | /api/invoices | viewer+ | 分页检索发票 |
-| GET | /api/invoices/{invoice_no} | viewer+ | 查看发票详情 |
-| GET | /api/export/invoices.csv | viewer+ | 导出发票汇总 |
-| GET | /api/export/line_items.csv | viewer+ | 导出发票明细 |
-| GET | /api/files/{file_id} | viewer+ | 下载原始 PDF |
-| GET | /api/health | 无 | 系统健康检查 |
-
 ## 1. 上传发票
 **POST /api/ingest/files**
 
@@ -32,9 +27,6 @@
     ```json
     {
       "jobs": [
-        {"job_id": "7f27f3d8", "file_id": 128, "status": "queued"}
-      ]
-    }
     ```
   - 失败：400/413/415/429/500（统一错误格式）
 
@@ -52,16 +44,12 @@
     "progress": 0.6,
     "error": null,
     "file_id": 128,
-    "retry_count": 1,
-    "created_at": "2025-10-30T12:05:13+08:00",
-    "updated_at": "2025-10-30T12:07:41+08:00"
   }
   ```
 
 ## 3. 发票列表
 **GET /api/invoices**
 
-- 功能：分页检索发票
 - 权限：`viewer` 及以上
 - 查询参数（均可选）
   - `page` 默认 1；`page_size` ≤100
@@ -88,9 +76,6 @@
         "uploaded_at": "2025-10-30T12:05:13+08:00"
       }
     ],
-    "page": 1,
-    "page_size": 20,
-    "total": 57
   }
   ```
 
@@ -130,32 +115,18 @@
         "code": "SUM_MISMATCH",
         "message": "合计金额与价税合计不一致",
         "field_path": "价税合计.小写"
-      }
-    ],
-    "raw_ocr_json": {...}
-  }
   ```
 
 ## 5. 导出汇总
 **GET /api/export/invoices.csv**
-
-- 功能：按当前筛选条件导出发票汇总 CSV
-- 权限：`viewer` 及以上
-- 查询参数：与列表接口一致
 - 响应：`text/csv; charset=utf-8`，包含 UTF-8 BOM，可流式输出
 
 ## 6. 导出明细
 **GET /api/export/line_items.csv**
-
-- 功能：导出行项目明细
-- 权限：`viewer` 及以上
-- 查询参数：与列表接口一致
 - 响应：`text/csv; charset=utf-8`
 
 ## 7. 下载原文件
 **GET /api/files/{file_id}**
-
-- 功能：下载原始上传 PDF
 - 权限：`viewer` 及以上；仅可访问有权限的文件
 - 响应：`application/pdf` 附件，文件名为原上传名
 - 失败：403（越权）、404（不存在）
@@ -171,9 +142,9 @@
     "version": "1.0.0",
     "timestamp": "2025-10-31T09:00:00+08:00",
     "dependencies": {
-      "database": "ok",
-      "redis": "ok",
-      "ocr": "degraded",
+      "database": "unknown",
+      "redis": "unknown",
+      "ocr": "ok",
       "storage": "ok"
     }
   }
@@ -182,7 +153,6 @@
 ## 统一错误响应示例
 ```json
 {
-  "error": {
     "code": "SIZE_LIMIT_EXCEEDED",
     "message": "文件大小超过 100MB",
     "details": {"limit_mb": 100},
