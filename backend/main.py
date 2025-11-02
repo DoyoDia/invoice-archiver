@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from backend.app.auth import get_current_user, require_role
 from backend.app.config import Settings, load_settings
+from backend.app.db_session import DatabaseManager
 from backend.app.dependencies import get_service, get_settings
 from backend.app.models import User
 from backend.app.schemas import (
@@ -40,8 +41,8 @@ from backend.app.schemas import (
     LineItemSchema,
     UploadResponse,
 ) 
-from backend.app.service import InvoiceService
-from backend.app.state import InMemoryStore, ensure_storage_dirs
+from backend.app.service_db import InvoiceServiceDB
+from backend.app.state import ensure_storage_dirs
 
 
 def decimal_to_str(value: Optional[Decimal], digits: Optional[int] = None) -> Optional[str]:
@@ -64,11 +65,16 @@ def build_app() -> FastAPI:
     settings.storage_root = str(storage_root)
     ensure_storage_dirs(storage_root)
 
-    store = InMemoryStore()
-    service = InvoiceService(settings, store)
+    db_manager = DatabaseManager(settings.database_url)
+    
+    async def get_session():
+        async with db_manager.session() as session:
+            yield session
+    
+    service = InvoiceServiceDB(settings, db_manager.session)
 
     app.state.settings = settings
-    app.state.store = store
+    app.state.db_manager = db_manager
     app.state.service = service
 
     router = APIRouter(prefix="/api")
@@ -82,7 +88,7 @@ def build_app() -> FastAPI:
         background_tasks: BackgroundTasks,
         current_user: User = Depends(require_role("uploader", "admin")),
         files: List[UploadFile] = File(..., alias="file"),
-        service: InvoiceService = Depends(get_service),
+        service: InvoiceServiceDB = Depends(get_service),
     ) -> UploadResponse:
         jobs = await service.ingest_files(files, current_user, background_tasks)
         return UploadResponse(
@@ -93,7 +99,7 @@ def build_app() -> FastAPI:
     async def get_job(
         job_id: str,
         current_user: User = Depends(get_current_user),
-        service: InvoiceService = Depends(get_service),
+        service: InvoiceServiceDB = Depends(get_service),
     ) -> JobQueryResponse:
         job = await service.get_job(job_id)
         if not job:
@@ -126,7 +132,7 @@ def build_app() -> FastAPI:
         item_name: Optional[str] = None,
         uploaded_by: Optional[str] = None,
         current_user: User = Depends(get_current_user),
-        service: InvoiceService = Depends(get_service),
+        service: InvoiceServiceDB = Depends(get_service),
     ) -> InvoiceListResponse:
         filters: Dict[str, Optional[str]] = {
             "invoice_no": invoice_no,
@@ -163,7 +169,7 @@ def build_app() -> FastAPI:
     async def get_invoice_detail(
         invoice_no: str,
         current_user: User = Depends(get_current_user),
-        service: InvoiceService = Depends(get_service),
+        service: InvoiceServiceDB = Depends(get_service),
     ) -> InvoiceDetailResponse:
         record = await service.get_invoice(invoice_no)
         if not record:
@@ -232,7 +238,7 @@ def build_app() -> FastAPI:
         amount_max: Optional[str] = None,
         item_name: Optional[str] = None,
         current_user: User = Depends(get_current_user),
-        service: InvoiceService = Depends(get_service),
+        service: InvoiceServiceDB = Depends(get_service),
     ) -> StreamingResponse:
         filters: Dict[str, Optional[str]] = {
             "invoice_no": invoice_no,
@@ -287,7 +293,7 @@ def build_app() -> FastAPI:
         invoice_no: Optional[str] = None,
         status_filter: Optional[str] = Query(None, alias="status"),
         current_user: User = Depends(get_current_user),
-        service: InvoiceService = Depends(get_service),
+        service: InvoiceServiceDB = Depends(get_service),
     ) -> StreamingResponse:
         filters: Dict[str, Optional[str]] = {
             "invoice_no": invoice_no,
@@ -341,7 +347,7 @@ def build_app() -> FastAPI:
     async def download_file(
         file_id: int,
         current_user: User = Depends(get_current_user),
-        service: InvoiceService = Depends(get_service),
+        service: InvoiceServiceDB = Depends(get_service),
     ) -> FileResponse:
         asset = await service.get_file_asset(file_id)
         if not asset:
@@ -378,6 +384,7 @@ def build_app() -> FastAPI:
     @app.on_event("shutdown")
     async def shutdown_event() -> None:
         await service.ocr_client.aclose()
+        await db_manager.close()
 
     return app
 

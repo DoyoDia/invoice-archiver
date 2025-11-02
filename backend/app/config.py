@@ -26,6 +26,12 @@ class Settings:
     ocr_request_timeout: int = field(default_factory=lambda: int(os.getenv("OCR_REQUEST_TIMEOUT", "120")))
     ocr_retry_max: int = field(default_factory=lambda: int(os.getenv("OCR_RETRY_MAX", "2")))
     timezone: str = field(default_factory=lambda: os.getenv("TZ", "Asia/Shanghai"))
+    database_url: str = field(
+        default_factory=lambda: os.getenv(
+            "DATABASE_URL",
+            "postgresql+asyncpg://invoice:ZdydYYd3tRNyMZcC@100.98.65.26:5432/invoice",
+        )
+    )
     demo_tokens: dict[str, str] = field(
         default_factory=lambda: {
             os.getenv("DEMO_UPLOADER_TOKEN", "uploader-token"): "uploader",
