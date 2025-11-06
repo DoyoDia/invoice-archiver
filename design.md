@@ -17,14 +17,13 @@
 
 ### 🧱 组件组成
 
-| 服务           | 技术栈                               | 主要职责                  |
-| ------------ | --------------------------------- | --------------------- |
-| **api**      | FastAPI + Uvicorn                 | 文件上传、任务创建、查询、导出       |
-| **worker**   | FastAPI Worker + Redis Queue (RQ) | 异步任务执行（PDF→OCR→解析→入库） |
-| **postgres** | PostgreSQL 16                     | 业务数据持久化               |
-| **redis**    | Redis 7                           | 任务队列与全局锁（OCR 串行）      |
-| **ocr**      | DeepSeek-OCR                      | 发票识别（外部 HTTP 服务）      |
-| **frontend** | Vue 3 + AntdVue                   | 概览、查询、导出界面            |
+| 服务             | 技术栈 / 部署方式                     | 主要职责                                      |
+| -------------- | ----------------------------------- | ------------------------------------------- |
+| **backend**    | FastAPI + Uvicorn（本仓库）              | 文件上传、任务调度、PDF/Markdown 解析、校验、入库 |
+| **postgres**   | PostgreSQL 16（Docker Compose）        | 业务数据持久化                                  |
+| **llm** _(可选)_ | Ollama + Qwen3-30B（外部或本地服务）       | Markdown→JSON 信息抽取，作为第一解析优先级             |
+| **ocr** _(可选)_ | DeepSeek-OCR（HTTP 服务）             | 当 PDF 文本和 LLM 失败时的兜底识别                      |
+| **frontend** _(预留)_ | Vue 3 + AntdVue（待实现）            | 概览、查询、导出界面                                  |
 
 ---
 
@@ -36,24 +35,24 @@
 
    * 用户上传 PDF（批量或单份）。
    * FastAPI 校验大小 ≤100MB、页数 ≤100。
-   * 创建 `file_asset` 记录并推入 `ingest` 队列。
+   * 创建 `file_asset` 记录并触发后台任务（async background task）。
 
-2. **渲染与 OCR**
+2. **解析优先级链路**
 
-   * worker 从 `ingest` 队列取任务 → 生成页图。
-   * 进入 `ocr` 队列（**全局单并发**，Redis 控制）。
-   * 调用 DeepSeek-OCR，获得结构化 JSON。
+   * **优先 LLM**：使用 `pymupdf4llm` 将 PDF 转 Markdown，调用 Ollama（Qwen3-30B）输出结构化 JSON。
+   * **次选 PDF 正则解析**：若 LLM 结果缺关键字段，直接解析 `pypdf` 提取的文本（针对竖排/混乱版式做清洗）。
+   * **兜底 OCR**：仍失败时调用 DeepSeek-OCR，使用 OCR 文本解析函数生成 JSON。
 
 3. **校验与入库**
 
-   * JSON 校验关键字段与金额一致性；
-   * 校验结果存入数据库；
-   * 若字段缺失或金额不符 → 写入 `invoice_anomalies`；
-   * 若重复发票 → 标记 `duplicate` 或 `conflict_duplicate`。
+   * 校验关键字段与金额一致性；
+   * 将合格数据写入数据库；
+   * 字段缺失或金额不符 → 写入 `invoice_anomalies`；
+   * 检查重复发票并标记 `duplicate` / `conflict_duplicate`。
 
 4. **查询与导出**
 
-   * 前端通过 API 查询发票；
+   * 前端 / API 查询发票列表、详情；
    * 支持 CSV 导出（UTF-8 with BOM）。
 
 ---
@@ -154,22 +153,14 @@
 
 ---
 
-## 7. 队列与任务流
+## 7. 任务流与调度
 
-### 队列结构
+### 任务调度方式
 
-| 队列名      | 并发数 | 说明                 |
-| -------- | --- | ------------------ |
-| ingest   | 2–4 | 文件解析、页数统计、哈希计算     |
-| ocr      | 1   | OCR 识别（**全局串行**）   |
-| postproc | 2–4 | JSON 校验、数据库写入、异常归档 |
-
-### 全局 OCR 串行控制
-
-* 通过 Redis 队列物理保证并发=1；
-* 若未来扩展，可加 Redis 分布式锁保护；
-* 超时 120 秒，失败自动重试 2 次；
-* 连续失败 3 次 → “死信队列”并标记 `failed`。
+* FastAPI 使用 `BackgroundTasks` 触发异步处理，无独立 worker 队列。
+* `_process_job` 内部使用 `asyncio.Semaphore(1)` 串行化 OCR 调用，防止第三方服务过载。
+* LLM 与 PDF 解析可并发运行，多任务取决于 API 实例的工作线程数。
+* 失败记录会写回 `job` 和 `file_asset`，便于重试或人工处理。
 
 ---
 
@@ -212,49 +203,51 @@
 
 ---
 
-## 10. Docker Compose 设计
+## 10. Docker 化方案
 
-### 📦 目录结构
+### 📦 目录结构（当前仓库）
 
 ```
-invoice_system/
-│
+invoice-archiver/
 ├─ backend/
+│   ├─ Dockerfile          # 后端镜像构建
 │   ├─ main.py
-│   ├─ worker.py
-│   ├─ models/
-│   ├─ routes/
-│   └─ utils/
-│
-├─ frontend/
-│   └─ （Vue 项目源码）
-│
-├─ data/
-│   ├─ invoices/     # 原始 PDF/图片
-│   └─ pg/           # PGSQL 数据卷
-│
-├─ docker-compose.yml
-├─ .env
-└─ README.md
+│   ├─ app/
+│   └─ requirements.txt
+├─ data/                   # 映射到容器内 /data，保存发票及导出文件
+├─ docker-compose.yml      # 后端服务编排（加入 1panel-network）
+└─ frontend/               # 预留前端目录
 ```
 
-### ⚙️ 关键环境变量
+### ⚙️ Compose 服务
 
-```env
-POSTGRES_USER=invoice
-POSTGRES_PASSWORD=invoice123
-POSTGRES_DB=invoice_db
-DATABASE_URL=postgresql://invoice:invoice123@postgres:5432/invoice_db
-REDIS_URL=redis://redis:6379/0
-OCR_BASE_URL=http://ocr:8000
-MAX_FILE_MB=100
-MAX_PAGES=100
-AMOUNT_TOLERANCE=0.01
-ALLOWED_TAX_RATES=0,1,3,6,9,13
-OCR_REQUEST_TIMEOUT=120
-OCR_RETRY_MAX=2
-TZ=Asia/Shanghai
+| 服务       | 说明                                                                 |
+| ---------- | -------------------------------------------------------------------- |
+| backend    | 基于项目 Dockerfile 构建，映射 9000 端口，挂载 `./data` 到容器 `/data`，加入现有 `1panel-network` 网络。 |
+
+> 依赖服务（非 Compose 管理）：
+> * **PostgreSQL**：已由 1Panel 部署，容器名 `1Panel-postgresql-MYOJ`。
+> * **Ollama**：部署在宿主机（host network），监听 11434。
+
+默认环境变量：
+
+```yaml
+DATABASE_URL: postgresql+asyncpg://<user>:<password>@1Panel-postgresql-MYOJ:5432/<database>
+STORAGE_ROOT: /data
+LLM_BASE_URL: http://host.docker.internal:11434
+LLM_MODEL: Qwen3-30B-A3B-Instruct-2507
 ```
+
+> ⚠️ 请替换 `<user>/<password>/<database>` 为 1Panel PostgreSQL 实际凭据。
+> `docker-compose.yml` 已通过 `extra_hosts` 映射 `host.docker.internal -> host-gateway`，确保容器能访问宿主机上的 Ollama 服务。
+
+### ▶️ 启动步骤
+
+1. 确认 Docker 网络 `1panel-network` 已存在（1Panel 默认创建）。
+2. 根据实际凭据修改 `docker-compose.yml` 中的 `DATABASE_URL` 和其他环境变量。
+3. 运行 `docker compose up --build -d` 启动后台服务并自动加入 `1panel-network`。
+4. 首次部署后进入容器执行 `alembic upgrade head` 创建数据库表结构。
+5. 通过 `http://localhost:9000/api/health` 验证服务运行情况。
 
 ---
 

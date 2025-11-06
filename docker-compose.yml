@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: invoice_backend
+    environment:
+      TZ: Asia/Shanghai
+      MAX_FILE_MB: "100"
+      MAX_PAGES: "100"
+      AMOUNT_TOLERANCE: "0.01"
+      ALLOWED_TAX_RATES: "0,1,3,6,9,13"
+      DATABASE_URL: postgresql+asyncpg://invoice:invoice123@1Panel-postgresql-MYOJ:5432/invoice
+      STORAGE_ROOT: /data
+      LLM_ENABLED: "true"
+      LLM_BASE_URL: http://host.docker.internal:11434
+      LLM_MODEL: Qwen3-30B-A3B-Instruct-2507
+    volumes:
+      - ./data:/data
+    ports:
+      - "9000:9000"
+    networks:
+      - 1panel-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  1panel-network:
+    external: true
+    name: 1panel-network
