@@ -383,7 +383,7 @@ def build_app() -> FastAPI:
 
     @app.on_event("shutdown")
     async def shutdown_event() -> None:
-        await service.ocr_client.aclose()
+        await service.aclose()
         await db_manager.close()
 
     return app

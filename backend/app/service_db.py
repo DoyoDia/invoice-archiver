@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import AsyncContextManager, Callable, Dict, List, Optional, Tuple
 
 from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,17 +23,24 @@ from .models import (
     JobRecord,
     User,
 )
+from .llm_service import LLMService
 from .ocr import OCRClient
 from .repository import InvoiceRepository
-from ..md2json import parse_invoice_text
+from ..md2json import parse_invoice_from_pdf_text, parse_invoice_from_ocr
 
 
 class InvoiceServiceDB:
-    def __init__(self, settings: Settings, session_factory: Callable[[], AsyncSession]) -> None:
+    def __init__(self, settings: Settings, session_factory: Callable[[], AsyncContextManager[AsyncSession]]) -> None:
         self.settings = settings
         self.session_factory = session_factory
         self.ocr_client = OCRClient(settings)
         self._semaphore = asyncio.Semaphore(1)
+        self.llm_service: Optional[LLMService] = None
+        if self.settings.llm_enabled:
+            try:
+                self.llm_service = LLMService.from_settings(settings)
+            except Exception:
+                self.llm_service = None
 
     async def ingest_files(
         self,
@@ -125,17 +132,59 @@ class InvoiceServiceDB:
                 return
 
             try:
-                await self._update_job(repo, job, status="processing", step="ocr", progress=0.1)
+                await self._update_job(repo, job, status="processing", step="extract_text", progress=0.1)
                 await self._update_file(repo, file_asset, status=FileStatus.PROCESSING)
                 await session.commit()
 
-                async with self._semaphore:
-                    ocr_result = await self.ocr_client.recognize_pdf(file_asset.stored_path)
+                parsed_json = None
+                raw_text: Optional[str] = None
 
-                await self._update_job(repo, job, step="parse", progress=0.4)
-                await session.commit()
+                # 优先尝试 LLM 解析
+                if self.llm_service is not None:
+                    await self._update_job(repo, job, step="llm_parse", progress=0.2)
+                    await session.commit()
+                    try:
+                        llm_result = await self.llm_service.parse_invoice(file_asset.stored_path)
+                        candidate = llm_result.data
+                        if candidate.get("发票号码") or (candidate.get("项目") and len(candidate.get("项目") or []) > 0):
+                            parsed_json = candidate
+                            raw_text = llm_result.source_markdown
+                    except Exception:
+                        parsed_json = None
 
-                parsed_json = parse_invoice_text(ocr_result.text)
+                if not parsed_json:
+                    # 先尝试直接提取 PDF 文本
+                    extracted_text = self._extract_pdf_text(file_asset.stored_path)
+
+                    if extracted_text:
+                        await self._update_job(repo, job, step="parse_extracted", progress=0.3)
+                        await session.commit()
+
+                        try:
+                            candidate = parse_invoice_from_pdf_text(extracted_text)
+                            if candidate.get("发票号码") or (candidate.get("项目") and len(candidate["项目"]) > 0):
+                                parsed_json = candidate
+                                raw_text = extracted_text
+                        except Exception:
+                            parsed_json = None
+
+                # 如果仍未成功，使用 OCR
+                if not parsed_json:
+                    await self._update_job(repo, job, step="ocr", progress=0.4)
+                    await session.commit()
+
+                    async with self._semaphore:
+                        ocr_result = await self.ocr_client.recognize_pdf(file_asset.stored_path)
+
+                    await self._update_job(repo, job, step="parse", progress=0.6)
+                    await session.commit()
+
+                    parsed_json = parse_invoice_from_ocr(ocr_result.text)
+                    raw_text = ocr_result.text
+                
+                # 确保 raw_text 不为 None
+                if raw_text is None:
+                    raise ValueError("Failed to extract text from PDF")
 
                 await self._update_job(repo, job, step="validate", progress=0.7)
                 await session.commit()
@@ -144,7 +193,7 @@ class InvoiceServiceDB:
                     repo=repo,
                     file_asset=file_asset,
                     parsed_json=parsed_json,
-                    raw_text=ocr_result.text,
+                    raw_text=raw_text,
                     uploader_id=file_asset.uploader_id,
                 )
 
@@ -156,6 +205,14 @@ class InvoiceServiceDB:
                 await self._update_job(repo, job, status="failed", step="error", error=str(exc))
                 await self._update_file(repo, file_asset, status=FileStatus.FAILED, error=str(exc))
                 await session.commit()
+
+    async def aclose(self) -> None:
+        if self.llm_service is not None:
+            try:
+                await self.llm_service.aclose()
+            except Exception:
+                pass
+        await self.ocr_client.aclose()
 
     async def _update_job(
         self,
@@ -386,5 +443,27 @@ class InvoiceServiceDB:
                 return len(reader.pages)
         except ImportError:
             return None
+        except Exception:
+            return None
+
+    def _extract_pdf_text(self, file_path: Path) -> Optional[str]:
+        """尝试从 PDF 提取文本，如果成功返回文本，失败返回 None"""
+        try:
+            from pypdf import PdfReader
+
+            with open(file_path, "rb") as fp:
+                reader = PdfReader(fp)
+                text_parts = []
+                for page in reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_parts.append(page_text)
+                
+                if text_parts:
+                    full_text = "\n".join(text_parts)
+                    # 简单检查是否包含发票相关关键字
+                    if any(kw in full_text for kw in ["发票", "购买方", "销售方", "金额", "税额"]):
+                        return full_text
+                return None
         except Exception:
             return None

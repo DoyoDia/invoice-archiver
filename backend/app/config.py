@@ -6,6 +6,11 @@ from decimal import Decimal
 from typing import List
 
 
+def _env_bool(name: str, default: str = "false") -> bool:
+    value = os.getenv(name, default)
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(slots=True)
 class Settings:
     """Application configuration loaded from environment variables."""
@@ -39,6 +44,18 @@ class Settings:
             os.getenv("DEMO_ADMIN_TOKEN", "admin-token"): "admin",
         }
     )
+    llm_enabled: bool = field(default_factory=lambda: _env_bool("LLM_ENABLED", "true"))
+    llm_base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", "http://100.98.65.26:11434"))
+    llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "Qwen3-30B-A3B-Instruct-2507"))
+    llm_temperature: float = field(default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.7")))
+    llm_min_p: float = field(default_factory=lambda: float(os.getenv("LLM_MIN_P", "0.0")))
+    llm_repeat_penalty: float = field(default_factory=lambda: float(os.getenv("LLM_REPEAT_PENALTY", "1.05")))
+    llm_top_k: int = field(default_factory=lambda: int(os.getenv("LLM_TOP_K", "20")))
+    llm_top_p: float = field(default_factory=lambda: float(os.getenv("LLM_TOP_P", "0.8")))
+    llm_stop_tokens: List[str] = field(
+        default_factory=lambda: [token for token in os.getenv("LLM_STOP_TOKENS", "<|im_start|>,<|im_end|>").split(",") if token]
+    )
+    llm_request_timeout: int = field(default_factory=lambda: int(os.getenv("LLM_REQUEST_TIMEOUT", "120")))
 
 
 def load_settings() -> Settings:
