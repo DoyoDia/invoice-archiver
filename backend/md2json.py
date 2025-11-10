@@ -1,5 +1,4 @@
 import re
-import json
 
 def parse_invoice_from_ocr(text: str) -> dict:
     """
@@ -320,21 +319,3 @@ def parse_invoice_from_pdf_text(text: str) -> dict:
 
     invoice["项目"] = items
     return invoice
-
-
-# 向后兼容的统一入口（尝试自动识别格式）
-def parse_invoice_text(text: str) -> dict:
-    """
-    自动识别文本格式并调用对应的解析器
-    如果包含表格标记 | 或空格分隔的规整格式，使用 OCR 解析器
-    否则使用 PDF 解析器
-    """
-    # 简单启发式判断：包含较多 | 符号的是 OCR 表格格式
-    if text.count('|') > 5:
-        return parse_invoice_from_ocr(text)
-    # 包含 *xxx*yyy 格式且字段分散的是 PDF 格式
-    elif re.search(r"名称[:：]\s*\n[^\n]{2,20}\n", text):
-        return parse_invoice_from_pdf_text(text)
-    else:
-        # 默认使用 OCR 解析器（原有逻辑）
-        return parse_invoice_from_ocr(text)

@@ -40,9 +40,14 @@ from backend.app.schemas import (
     JobQueryResponse,
     LineItemSchema,
     UploadResponse,
-) 
+)
 from backend.app.service_db import InvoiceServiceDB
-from backend.app.state import ensure_storage_dirs
+
+
+def ensure_storage_dirs(root: Path) -> None:
+    invoices_dir = root / "invoices"
+    invoices_dir.mkdir(parents=True, exist_ok=True)
+    (root / "tmp").mkdir(parents=True, exist_ok=True)
 
 
 def decimal_to_str(value: Optional[Decimal], digits: Optional[int] = None) -> Optional[str]:

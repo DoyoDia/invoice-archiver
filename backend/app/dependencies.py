@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-from fastapi import Depends, Request
+from fastapi import Request
 
 from .config import Settings
-from .service import InvoiceService
-from .state import InMemoryStore
+from .service_db import InvoiceServiceDB
 
 
 def get_settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
-def get_store(request: Request) -> InMemoryStore:
-    return request.app.state.store
-
-
-def get_service(request: Request) -> InvoiceService:
+def get_service(request: Request) -> InvoiceServiceDB:
     return request.app.state.service
