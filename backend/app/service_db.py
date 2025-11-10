@@ -139,19 +139,26 @@ class InvoiceServiceDB:
                 parsed_json = None
                 raw_text: Optional[str] = None
 
-                # 优先尝试 LLM 解析
+                # 优先尝试 LLM 解析（内置直接提取 + OCR 回退）
                 if self.llm_service is not None:
                     await self._update_job(repo, job, step="llm_parse", progress=0.2)
                     await session.commit()
                     try:
                         llm_result = await self.llm_service.parse_invoice(file_asset.stored_path)
-                        candidate = llm_result.data
-                        if candidate.get("发票号码") or (candidate.get("项目") and len(candidate.get("项目") or []) > 0):
-                            parsed_json = candidate
-                            raw_text = llm_result.source_markdown
-                    except Exception:
+                        parsed_json = llm_result.data
+                        raw_text = llm_result.source_markdown
+                    except Exception as e:
+                        # LLM 完全失败，记录错误（包含失败日志）
+                        import json as json_lib
+                        error_msg = str(e)
+                        if "失败日志" in error_msg or "failure_logs" in error_msg:
+                            # 错误信息已包含详细日志，直接记录
+                            await self._update_job(repo, job, error=error_msg)
+                        else:
+                            await self._update_job(repo, job, error=f"LLM parse failed: {error_msg}")
                         parsed_json = None
 
+                # 如果 LLM 未启用或失败，尝试传统方式
                 if not parsed_json:
                     # 先尝试直接提取 PDF 文本
                     extracted_text = self._extract_pdf_text(file_asset.stored_path)
