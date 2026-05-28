@@ -4,41 +4,42 @@
       <a-upload-dragger
         :file-list="fileList"
         :before-upload="handleBeforeUpload"
-        :max-count="10"
         multiple
         accept="application/pdf"
         :disabled="uploading"
         @remove="handleRemove"
       >
-        <p class="ant-upload-drag-icon">
-          <inbox-outlined />
-        </p>
+        <p class="ant-upload-drag-icon"><inbox-outlined /></p>
         <p class="ant-upload-text">拖拽或点击选择 PDF 文件</p>
-        <p class="ant-upload-hint">单文件 ≤ 100MB，页数 ≤ 100</p>
+        <p class="ant-upload-hint">单文件 ≤ 50MB，页数 ≤ 50</p>
       </a-upload-dragger>
 
-      <a-space class="actions" align="center">
+      <a-space class="actions">
         <a-button type="primary" @click="submitUpload" :loading="uploading" :disabled="fileList.length === 0">
-          上传并处理
+          上传并解析
         </a-button>
         <a-button @click="clearFiles" :disabled="uploading || fileList.length === 0">清空</a-button>
       </a-space>
     </a-card>
 
-    <a-card title="任务队列" class="mt-16">
-      <a-table :columns="jobColumns" :data-source="jobs" row-key="job_id" size="small">
+    <a-card v-if="results.length" title="解析结果" class="mt-16">
+      <a-table :columns="resultColumns" :data-source="results" row-key="file_id" size="small" :pagination="false">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
-            <a-tag :color="statusColorMap[record.status]">
-              {{ jobStatusLabel(record.status) }}
-            </a-tag>
+            <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'invoice_no'">
+            <router-link
+              v-if="record.invoice_no"
+              :to="{ name: 'invoice-detail', params: { invoiceNo: record.invoice_no } }"
+            >
+              {{ record.invoice_no }}
+            </router-link>
+            <span v-else>-</span>
           </template>
         </template>
       </a-table>
     </a-card>
-
-    <a-alert v-if="errorMessage" type="error" :message="errorMessage" show-icon class="mt-16" />
-    <a-alert v-if="successMessage" type="success" :message="successMessage" show-icon class="mt-16" />
   </div>
 </template>
 
@@ -47,72 +48,56 @@ import { ref } from "vue";
 import type { UploadProps } from "ant-design-vue";
 import { message } from "ant-design-vue";
 import { InboxOutlined } from "@ant-design/icons-vue";
-import { uploadInvoices } from "../services/invoiceService";
-import type { TaskStatus } from "../types/api";
 import type { UploadFile } from "ant-design-vue/es/upload/interface";
+import { uploadInvoices } from "../services/invoiceService";
+import type { IngestResult } from "../types/invoice";
 
 const fileList = ref<UploadFile[]>([]);
 const uploading = ref(false);
-const jobs = ref<Array<{ job_id: string; file_id: number; status: TaskStatus }>>([]);
-const errorMessage = ref("");
-const successMessage = ref("");
+const results = ref<IngestResult[]>([]);
 
 const handleBeforeUpload: UploadProps["beforeUpload"] = (file) => {
   const rawFile = file as unknown as File;
-  const isPdf = rawFile.type === "application/pdf";
-  if (!isPdf) {
+  if (rawFile.type !== "application/pdf") {
     message.error("仅支持 PDF 文件");
     return false;
   }
-  const isLt100Mb = (rawFile.size || 0) / 1024 / 1024 <= 100;
-  if (!isLt100Mb) {
-    message.error("文件超过 100MB 限制");
+  if ((rawFile.size || 0) / 1024 / 1024 > 50) {
+    message.error("文件超过 50MB 限制");
     return false;
   }
-  
-  const uploadFile: UploadFile = {
-    uid: `${Date.now()}-${Math.random()}`,
-    name: rawFile.name,
-    status: "done",
-    size: rawFile.size,
-    type: rawFile.type,
-    originFileObj: rawFile as any
-  };
-  fileList.value = [...fileList.value, uploadFile];
+  fileList.value = [
+    ...fileList.value,
+    {
+      uid: `${Date.now()}-${Math.random()}`,
+      name: rawFile.name,
+      status: "done",
+      size: rawFile.size,
+      type: rawFile.type,
+      originFileObj: rawFile as any
+    }
+  ];
   return false;
 };
 
-const handleRemove: UploadProps["onRemove"] = (file: UploadFile) => {
-  fileList.value = fileList.value.filter((item: UploadFile) => item.uid !== file.uid);
+const handleRemove: UploadProps["onRemove"] = (file) => {
+  fileList.value = fileList.value.filter((item) => item.uid !== file.uid);
 };
 
 const clearFiles = () => {
   fileList.value = [];
 };
 
-const statusColorMap: Record<TaskStatus, string> = {
-  queued: "blue",
-  processing: "warning",
-  finished: "success",
-  failed: "error",
-  dead_letter: "volcano"
-};
+const statusColor = (status: string) =>
+  ({ ok: "success", warn: "warning", error: "error", duplicate: "default", failed: "volcano" }[status] ?? "default");
+const statusLabel = (status: string) =>
+  ({ ok: "正常", warn: "警告", error: "异常", duplicate: "重复", failed: "失败" }[status] ?? status);
 
-const jobStatusLabel = (status: TaskStatus) => {
-  const map: Record<TaskStatus, string> = {
-    queued: "排队中",
-    processing: "处理中",
-    finished: "完成",
-    failed: "失败",
-    dead_letter: "死信"
-  };
-  return map[status];
-};
-
-const jobColumns = [
-  { title: "任务 ID", dataIndex: "job_id", key: "job_id" },
+const resultColumns = [
   { title: "文件 ID", dataIndex: "file_id", key: "file_id" },
-  { title: "状态", dataIndex: "status", key: "status" }
+  { title: "发票号", dataIndex: "invoice_no", key: "invoice_no" },
+  { title: "状态", dataIndex: "status", key: "status" },
+  { title: "错误", dataIndex: "error", key: "error" }
 ];
 
 const submitUpload = async () => {
@@ -120,26 +105,17 @@ const submitUpload = async () => {
     message.warning("请先选择文件");
     return;
   }
-
   uploading.value = true;
-  errorMessage.value = "";
-  successMessage.value = "";
-
   try {
     const files = fileList.value
-      .map((item: UploadFile) => item.originFileObj as File)
+      .map((item) => item.originFileObj as File)
       .filter((file): file is File => file instanceof File);
-    
-    if (files.length === 0) {
-      throw new Error("没有有效的文件可上传");
-    }
-    
     const result = await uploadInvoices(files);
-    jobs.value = [...result, ...jobs.value];
-    successMessage.value = `已提交 ${result.length} 个任务`;
+    results.value = [...result, ...results.value];
+    message.success(`已处理 ${result.length} 个文件`);
     clearFiles();
   } catch (err) {
-    errorMessage.value = err instanceof Error ? err.message : String(err);
+    message.error(err instanceof Error ? err.message : String(err));
   } finally {
     uploading.value = false;
   }
@@ -150,7 +126,6 @@ const submitUpload = async () => {
 .upload-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
 .upload-card {

@@ -1,34 +1,30 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from contextlib import contextmanager
+from typing import Iterator
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
-from .database import create_engine_from_url, create_session_factory
+from .database import create_db_engine, create_session_factory, init_db
 
 
 class DatabaseManager:
     def __init__(self, database_url: str) -> None:
-        self.engine = create_engine_from_url(database_url)
+        self.engine = create_db_engine(database_url)
         self.session_factory = create_session_factory(self.engine)
+        init_db(self.engine)
 
-    async def close(self) -> None:
-        await self.engine.dispose()
+    @contextmanager
+    def session(self) -> Iterator[Session]:
+        session = self.session_factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
-    @asynccontextmanager
-    async def session(self) -> AsyncGenerator[AsyncSession, None]:
-        async with self.session_factory() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-            finally:
-                await session.close()
-
-
-async def get_db_session(db_manager: DatabaseManager) -> AsyncGenerator[AsyncSession, None]:
-    async with db_manager.session() as session:
-        yield session
+    def close(self) -> None:
+        self.engine.dispose()

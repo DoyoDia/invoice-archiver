@@ -9,8 +9,6 @@ from typing import List, Optional
 
 
 class FileStatus(str, Enum):
-    QUEUED = "queued"
-    PROCESSING = "processing"
     PROCESSED = "processed"
     FAILED = "failed"
 
@@ -20,18 +18,11 @@ class InvoiceStatus(str, Enum):
     WARN = "warn"
     ERROR = "error"
     DUPLICATE = "duplicate"
-    CONFLICT_DUPLICATE = "conflict_duplicate"
-
-
-class AnomalySeverity(str, Enum):
-    INFO = "info"
-    WARN = "warn"
-    ERROR = "error"
 
 
 @dataclass(slots=True)
 class FileAsset:
-    id: int
+    id: Optional[int]
     filename: str
     content_hash: str
     size: int
@@ -39,24 +30,7 @@ class FileAsset:
     stored_path: Path
     status: FileStatus
     error: Optional[str]
-    uploaded_at: datetime
-    uploader_id: str
-
-
-@dataclass(slots=True)
-class JobRecord:
-    job_id: str
-    file_id: int
-    status: str
-    step: Optional[str]
-    progress: float
-    error: Optional[str]
-    retry_count: int
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-
-    def touch(self) -> None:
-        self.updated_at = datetime.now(timezone.utc)
+    uploaded_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass(slots=True)
@@ -71,16 +45,8 @@ class InvoiceLineItem:
 
 
 @dataclass(slots=True)
-class InvoiceAnomaly:
-    severity: AnomalySeverity
-    code: str
-    message: str
-    field_path: Optional[str] = None
-
-
-@dataclass(slots=True)
 class InvoiceRecord:
-    id: int
+    id: Optional[int]
     invoice_no: str
     invoice_type: Optional[str]
     invoice_date: Optional[date]
@@ -93,25 +59,8 @@ class InvoiceRecord:
     grand_total: Optional[Decimal]
     status: InvoiceStatus
     source_file_id: int
-    raw_ocr_text: str
-    raw_ocr_json: dict
+    raw_text: str
+    raw_json: dict
+    notes: Optional[str] = None
     line_items: List[InvoiceLineItem] = field(default_factory=list)
-    anomalies: List[InvoiceAnomaly] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    uploaded_by: str = "unknown"
-
-
-@dataclass(slots=True)
-class User:
-    user_id: str
-    username: str
-    role: str
-
-    def is_admin(self) -> bool:
-        return self.role == "admin"
-
-    def is_viewer(self) -> bool:
-        return self.role in {"viewer", "admin"}
-
-    def is_uploader(self) -> bool:
-        return self.role in {"uploader", "admin"}
