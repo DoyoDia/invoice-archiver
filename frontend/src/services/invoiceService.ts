@@ -1,14 +1,14 @@
 import type { PaginatedResponse } from "../types/api";
 import type {
+  IngestResult,
   InvoiceCounts,
   InvoiceDetail,
   InvoiceFilter,
-  InvoiceSummaryRecord,
-  UploadJob
+  InvoiceSummaryRecord
 } from "../types/invoice";
 import http from "./http";
 
-export interface ExportParams extends Omit<InvoiceFilter, "page" | "page_size"> {}
+export type ExportParams = Omit<InvoiceFilter, "page" | "page_size">;
 
 export const fetchInvoices = async (
   params: InvoiceFilter
@@ -22,72 +22,28 @@ export const fetchInvoiceDetail = async (invoiceNo: string): Promise<InvoiceDeta
   return data;
 };
 
-export const fetchInvoiceCounts = async (): Promise<InvoiceCounts> => {
-  const statusKeys: Array<keyof InvoiceCounts> = [
-    "total",
-    "ok",
-    "warn",
-    "error",
-    "duplicate",
-    "conflict_duplicate"
-  ];
-
-  const requests = statusKeys.map((key) => {
-    if (key === "total") {
-      return http
-        .get<PaginatedResponse<InvoiceSummaryRecord>>("/invoices", {
-          params: { page: 1, page_size: 1 }
-        })
-        .then((res: { data: PaginatedResponse<InvoiceSummaryRecord> }) => res.data.total)
-        .catch(() => 0);
-    }
-
-    return http
-      .get<PaginatedResponse<InvoiceSummaryRecord>>("/invoices", {
-        params: { page: 1, page_size: 1, status: key }
-      })
-      .then((res: { data: PaginatedResponse<InvoiceSummaryRecord> }) => res.data.total)
-      .catch(() => 0);
-  });
-
-  const results = await Promise.all(requests);
+export const fetchSummary = async (): Promise<InvoiceCounts> => {
+  const { data } = await http.get<Record<string, number>>("/invoices/summary");
   return {
-    total: results[0],
-    ok: results[1],
-    warn: results[2],
-    error: results[3],
-    duplicate: results[4],
-    conflict_duplicate: results[5]
+    total: data.total ?? 0,
+    ok: data.ok ?? 0,
+    warn: data.warn ?? 0,
+    error: data.error ?? 0,
+    duplicate: data.duplicate ?? 0
   };
 };
 
-export const uploadInvoices = async (files: File[]): Promise<UploadJob[]> => {
+export const uploadInvoices = async (files: File[]): Promise<IngestResult[]> => {
   const formData = new FormData();
-  files.forEach((file) => {
-    formData.append("file", file, file.name);
-  });
-
-  const { data } = await http.post<{ jobs: UploadJob[] }>("/ingest/files", formData);
-
-  return data.jobs;
+  files.forEach((file) => formData.append("file", file, file.name));
+  const { data } = await http.post<{ results: IngestResult[] }>("/invoices", formData);
+  return data.results;
 };
 
 export const exportInvoices = (params: ExportParams) => {
-  return http.get<Blob>("/export/invoices.csv", {
-    params,
-    responseType: "blob"
-  });
-};
-
-export const exportLineItems = (params: ExportParams) => {
-  return http.get<Blob>("/export/line_items.csv", {
-    params,
-    responseType: "blob"
-  });
+  return http.get<Blob>("/export.csv", { params, responseType: "blob" });
 };
 
 export const downloadSourceFile = (fileId: number) => {
-  return http.get<Blob>(`/files/${fileId}`, {
-    responseType: "blob"
-  });
+  return http.get<Blob>(`/files/${fileId}`, { responseType: "blob" });
 };

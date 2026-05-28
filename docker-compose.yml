@@ -1,31 +1,16 @@
-version: "3.9"
-
 services:
-  backend:
+  app:
     build:
-      context: ./backend
-    container_name: invoice_backend
+      context: .
+    container_name: invoice_archiver
     environment:
       TZ: Asia/Shanghai
-      MAX_FILE_MB: "100"
-      MAX_PAGES: "100"
-      AMOUNT_TOLERANCE: "0.01"
-      ALLOWED_TAX_RATES: "0,1,3,6,9,13"
-      DATABASE_URL: postgresql+asyncpg://invoice:invoice123@1Panel-postgresql-MYOJ:5432/invoice
+      DATABASE_URL: sqlite:////data/invoices.db
       STORAGE_ROOT: /data
-      LLM_ENABLED: "true"
-      LLM_BASE_URL: http://host.docker.internal:11434
-      LLM_MODEL: Qwen3-30B-A3B-Instruct-2507
+      # 可选 LLM 兜底：填入本地 Ollama 地址即启用，留空则纯正则解析。
+      LLM_BASE_URL: ""
+      # LLM_MODEL: qwen3:14b
     volumes:
       - ./data:/data
     ports:
-      - "9000:9000"
-    networks:
-      - 1panel-network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-networks:
-  1panel-network:
-    external: true
-    name: 1panel-network
+      - "8000:8000"

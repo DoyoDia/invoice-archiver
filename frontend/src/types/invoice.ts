@@ -1,54 +1,42 @@
-import type { TaskStatus } from "./api";
-
-export type InvoiceStatus =
-  | "ok"
-  | "warn"
-  | "error"
-  | "duplicate"
-  | "conflict_duplicate";
+export type InvoiceStatus = "ok" | "warn" | "error" | "duplicate";
 
 export interface InvoiceSummaryRecord {
   invoice_id: number;
   invoice_no: string;
-  invoice_date: string;
-  buyer_name: string;
-  seller_name: string;
-  total_amount: string;
-  total_tax: string;
-  grand_total: string;
+  invoice_date: string | null;
+  buyer_name: string | null;
+  seller_name: string | null;
+  total_amount: string | null;
+  total_tax: string | null;
+  grand_total: string | null;
   status: InvoiceStatus;
-  anomaly_codes: string[];
+  source_file_id: number;
   uploaded_at: string;
 }
 
 export interface InvoiceDetail {
   invoice: {
     invoice_no: string;
-    invoice_type: string;
-    invoice_date: string;
-    buyer: { name: string; tax_id: string };
-    seller: { name: string; tax_id: string };
-    totals: { amount: string; tax: string; grand: string };
+    invoice_type: string | null;
+    invoice_date: string | null;
+    buyer: { name: string | null; tax_id: string | null };
+    seller: { name: string | null; tax_id: string | null };
+    totals: { amount: string | null; tax: string | null; grand: string | null };
     status: InvoiceStatus;
+    notes: string | null;
     source_file_id: number;
     created_at: string;
   };
   line_items: Array<{
-    item_name: string;
-    spec_model: string;
-    quantity: string;
-    unit_price: string;
-    amount: string;
-    tax_rate: string;
-    tax_amount: string;
+    item_name: string | null;
+    spec_model: string | null;
+    quantity: string | null;
+    unit_price: string | null;
+    amount: string | null;
+    tax_rate: string | null;
+    tax_amount: string | null;
   }>;
-  anomalies: Array<{
-    severity: "info" | "warn" | "error";
-    code: string;
-    message: string;
-    field_path: string;
-  }>;
-  raw_ocr_json: Record<string, unknown>;
+  raw_json: Record<string, unknown>;
 }
 
 export interface InvoiceFilter {
@@ -58,10 +46,6 @@ export interface InvoiceFilter {
   status?: InvoiceStatus;
   date_start?: string;
   date_end?: string;
-  amount_min?: string;
-  amount_max?: string;
-  item_name?: string;
-  uploaded_by?: string;
 }
 
 export interface InvoiceCounts {
@@ -70,11 +54,11 @@ export interface InvoiceCounts {
   warn: number;
   error: number;
   duplicate: number;
-  conflict_duplicate: number;
 }
 
-export interface UploadJob {
-  job_id: string;
+export interface IngestResult {
   file_id: number;
-  status: TaskStatus;
+  invoice_no: string | null;
+  status: string;
+  error?: string | null;
 }

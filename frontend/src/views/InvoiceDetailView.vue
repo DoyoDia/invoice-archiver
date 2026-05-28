@@ -64,22 +64,11 @@
           />
         </a-card>
 
-        <a-card title="异常记录" class="mt-16 detail-card">
-          <a-empty v-if="detail.anomalies.length === 0" description="暂无异常" />
-          <a-list v-else :data-source="detail.anomalies" bordered>
-            <template #renderItem="{ item }">
-              <a-list-item>
-                <div class="anomaly-item">
-                  <span :class="['severity', `severity-${item.severity}`]">{{ item.code }}</span>
-                  <span class="message">{{ item.message }}</span>
-                  <span class="field">{{ item.field_path }}</span>
-                </div>
-              </a-list-item>
-            </template>
-          </a-list>
+        <a-card v-if="detail.invoice.notes" title="校验提示" class="mt-16 detail-card">
+          <a-alert type="warning" :message="detail.invoice.notes" show-icon />
         </a-card>
 
-        <a-card title="原始 OCR" class="mt-16 detail-card">
+        <a-card title="解析结果 JSON" class="mt-16 detail-card">
           <a-collapse>
             <a-collapse-panel key="raw" header="展开查看 JSON">
               <pre class="json-viewer">{{ formattedJson }}</pre>
@@ -118,16 +107,14 @@ const statusLabelMap: Record<InvoiceStatus, string> = {
   ok: "正常",
   warn: "警告",
   error: "异常",
-  duplicate: "重复",
-  conflict_duplicate: "冲突重复"
+  duplicate: "重复"
 };
 
 const statusColorMap: Record<InvoiceStatus, string> = {
   ok: "success",
   warn: "warning",
   error: "error",
-  duplicate: "default",
-  conflict_duplicate: "volcano"
+  duplicate: "default"
 };
 
 const lineColumns = [
@@ -153,7 +140,7 @@ const loadDetail = async () => {
 };
 
 const formattedJson = computed(() =>
-  detail.value?.raw_ocr_json ? JSON.stringify(detail.value.raw_ocr_json, null, 2) : "暂无数据"
+  detail.value?.raw_json ? JSON.stringify(detail.value.raw_json, null, 2) : "暂无数据"
 );
 
 const onDownloadSource = async () => {
@@ -195,29 +182,6 @@ onMounted(() => {
 
 .mt-16 {
   margin-top: 16px;
-}
-
-.anomaly-item {
-  display: grid;
-  grid-template-columns: 120px 1fr 200px;
-  gap: 12px;
-  align-items: center;
-}
-
-.severity {
-  font-weight: 600;
-}
-
-.severity-info {
-  color: #1677ff;
-}
-
-.severity-warn {
-  color: #faad14;
-}
-
-.severity-error {
-  color: #ff4d4f;
 }
 
 .actions {

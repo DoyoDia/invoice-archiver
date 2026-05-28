@@ -3,32 +3,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
-class JobItem(BaseModel):
-    job_id: str
+class IngestResultItem(BaseModel):
     file_id: int
+    invoice_no: Optional[str] = None
     status: str
+    error: Optional[str] = None
 
 
-class JobQueryResponse(BaseModel):
-    job_id: str
-    status: str
-    step: Optional[str]
-    progress: float = Field(ge=0.0, le=1.0)
-    error: Optional[str]
-    retry_count: int
-    created_at: datetime
-    updated_at: datetime
-    file_id: int
-
-
-class AnomalySchema(BaseModel):
-    severity: str
-    code: str
-    message: str
-    field_path: Optional[str] = None
+class UploadResponse(BaseModel):
+    results: List[IngestResultItem]
 
 
 class InvoiceListItem(BaseModel):
@@ -41,7 +27,7 @@ class InvoiceListItem(BaseModel):
     total_tax: Optional[str]
     grand_total: Optional[str]
     status: str
-    anomaly_codes: List[str] = Field(default_factory=list)
+    source_file_id: int
     uploaded_at: datetime
 
 
@@ -50,18 +36,6 @@ class InvoiceListResponse(BaseModel):
     page: int
     page_size: int
     total: int
-
-
-class InvoiceEntity(BaseModel):
-    invoice_no: str
-    invoice_type: Optional[str]
-    invoice_date: Optional[str]
-    buyer: Optional[dict]
-    seller: Optional[dict]
-    totals: Optional[dict]
-    status: str
-    source_file_id: int
-    created_at: datetime
 
 
 class LineItemSchema(BaseModel):
@@ -74,16 +48,20 @@ class LineItemSchema(BaseModel):
     tax_amount: Optional[str]
 
 
+class InvoiceEntity(BaseModel):
+    invoice_no: str
+    invoice_type: Optional[str]
+    invoice_date: Optional[str]
+    buyer: Optional[dict]
+    seller: Optional[dict]
+    totals: Optional[dict]
+    status: str
+    notes: Optional[str]
+    source_file_id: int
+    created_at: datetime
+
+
 class InvoiceDetailResponse(BaseModel):
     invoice: InvoiceEntity
     line_items: List[LineItemSchema]
-    anomalies: List[AnomalySchema]
-    raw_ocr_json: dict
-
-
-class UploadResponse(BaseModel):
-    jobs: List[JobItem]
-
-
-class ErrorResponse(BaseModel):
-    error: dict
+    raw_json: dict

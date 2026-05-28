@@ -35,6 +35,7 @@ tar -a -c -f "%OUTPUT_PATH%" ^
     backend ^
     frontend ^
     data ^
+    Dockerfile ^
     docker-compose.yml ^
     package_project.cmd
 
