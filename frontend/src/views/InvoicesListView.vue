@@ -41,25 +41,7 @@
             <a-tooltip title="发票号前加单引号，避免老版本 Excel 转成科学计数法">
               <a-button @click="onExportQuoted" :loading="exportingQuoted">导出'csv'</a-button>
             </a-tooltip>
-            <a-popover trigger="click" title="管理标签" placement="bottomRight">
-              <template #content>
-                <div v-if="allTags.length" class="tag-manage">
-                  <div v-for="t in allTags" :key="t.id" class="tag-manage-row">
-                    <span>{{ t.name }}</span>
-                    <a-popconfirm
-                      title="确认删除该标签？将从所有发票上移除"
-                      ok-text="删除"
-                      cancel-text="取消"
-                      @confirm="onDeleteTag(t)"
-                    >
-                      <a-button type="text" danger size="small">删除</a-button>
-                    </a-popconfirm>
-                  </div>
-                </div>
-                <a-empty v-else :image="false" description="暂无标签" />
-              </template>
-              <a-button>管理标签</a-button>
-            </a-popover>
+            <a-button @click="manageVisible = true">管理标签</a-button>
           </a-space>
         </a-form-item>
       </a-form>
@@ -89,8 +71,10 @@
           </template>
           <template v-else-if="column.key === 'tags'">
             <a-tag v-for="tag in record.tags" :key="tag" color="blue">{{ tag }}</a-tag>
+            <span v-if="!record.tags.length" class="muted">—</span>
           </template>
           <template v-else-if="column.key === 'action'">
+            <a-button type="link" size="small" @click="openTagEdit(record)">编辑标签</a-button>
             <a-button type="link" size="small" @click="onToggleDeleted(record)">
               {{ record.deleted ? "取消删除" : "标记删除" }}
             </a-button>
@@ -98,6 +82,51 @@
         </template>
       </a-table>
     </a-card>
+
+    <!-- 编辑某发票的标签：弹窗即二次确认 -->
+    <a-modal
+      v-model:open="tagEditVisible"
+      :title="`编辑标签 · ${tagEditNo}`"
+      ok-text="确定"
+      cancel-text="取消"
+      :confirm-loading="tagEditSaving"
+      @ok="saveTagEdit"
+    >
+      <a-select
+        v-model:value="tagEditValues"
+        mode="tags"
+        style="width: 100%"
+        placeholder="选择或输入标签（回车创建），可删除已有标签"
+        :options="tagOptions"
+      />
+    </a-modal>
+
+    <!-- 管理标签：新增 + 删除（删除带二次确认） -->
+    <a-modal v-model:open="manageVisible" title="管理标签" :footer="null">
+      <a-space style="width: 100%; margin-bottom: 12px">
+        <a-input
+          v-model:value="newTagName"
+          placeholder="输入新标签名"
+          style="width: 220px"
+          @press-enter="addTag"
+        />
+        <a-button type="primary" @click="addTag">添加</a-button>
+      </a-space>
+      <div v-if="allTags.length" class="tag-manage">
+        <div v-for="t in allTags" :key="t.id" class="tag-manage-row">
+          <a-tag color="blue">{{ t.name }}</a-tag>
+          <a-popconfirm
+            title="确认删除该标签？将从所有发票上移除"
+            ok-text="删除"
+            cancel-text="取消"
+            @confirm="onDeleteTag(t)"
+          >
+            <a-button type="text" danger size="small">删除</a-button>
+          </a-popconfirm>
+        </div>
+      </div>
+      <a-empty v-else :image="false" description="暂无标签" />
+    </a-modal>
   </div>
 </template>
 
@@ -107,11 +136,13 @@ import type { Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { useInvoiceStore } from "../stores/invoiceStore";
 import {
+  createTag,
   deleteTag,
   exportInvoices,
   fetchSummary,
   fetchTags,
-  setInvoiceDeleted
+  setInvoiceDeleted,
+  setInvoiceTags
 } from "../services/invoiceService";
 import type {
   InvoiceCounts,
@@ -131,11 +162,34 @@ const exportingQuoted = ref(false);
 const allTags = ref<Tag[]>([]);
 const tagOptions = computed(() => allTags.value.map((t) => ({ value: t.name, label: t.name })));
 
+// 管理标签弹窗
+const manageVisible = ref(false);
+const newTagName = ref("");
+
+// 编辑某发票标签弹窗
+const tagEditVisible = ref(false);
+const tagEditNo = ref("");
+const tagEditValues = ref<string[]>([]);
+const tagEditSaving = ref(false);
+
 const loadTags = async () => {
   try {
     allTags.value = await fetchTags();
   } catch {
     /* 标签加载失败不阻塞列表 */
+  }
+};
+
+const addTag = async () => {
+  const name = newTagName.value.trim();
+  if (!name) return;
+  try {
+    await createTag(name);
+    newTagName.value = "";
+    await loadTags();
+    message.success(`已添加标签「${name}」`);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
   }
 };
 
@@ -148,6 +202,27 @@ const onDeleteTag = async (tag: Tag) => {
     invoiceStore.loadInvoices({});
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
+  }
+};
+
+const openTagEdit = (record: InvoiceSummaryRecord) => {
+  tagEditNo.value = record.invoice_no;
+  tagEditValues.value = [...record.tags];
+  tagEditVisible.value = true;
+};
+
+const saveTagEdit = async () => {
+  tagEditSaving.value = true;
+  try {
+    await setInvoiceTags(tagEditNo.value, tagEditValues.value);
+    tagEditVisible.value = false;
+    message.success("标签已更新");
+    await loadTags();
+    invoiceStore.loadInvoices({});
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    tagEditSaving.value = false;
   }
 };
 
@@ -278,10 +353,13 @@ onMounted(() => {
   margin-top: 16px;
 }
 
+.muted {
+  color: #bfbfbf;
+}
+
 .tag-manage {
-  max-height: 240px;
+  max-height: 300px;
   overflow: auto;
-  min-width: 180px;
 }
 
 .tag-manage-row {
