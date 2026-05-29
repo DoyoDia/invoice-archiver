@@ -5,3 +5,6 @@
 data
 .git
 test
+# pnpm 10+ 会在本地自动生成此存根（含 onlyBuiltDependencies 占位），
+# 缺少 packages 字段会让容器内 pnpm run 报错，故排除出构建上下文。
+**/pnpm-workspace.yaml

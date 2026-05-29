@@ -4,15 +4,18 @@
 #   docker build --build-arg REGISTRY=docker.m.daocloud.io/library/ -t invoice-archiver .
 ARG REGISTRY=
 
-# --- 前端构建 ---
+# --- 前端构建（用 pnpm + 锁文件，保证与本地开发一致、可复现）---
 FROM ${REGISTRY}node:20-slim AS frontend
 # 默认用 npmmirror 国内源，可用 --build-arg NPM_REGISTRY=... 覆盖
 ARG NPM_REGISTRY=https://registry.npmmirror.com
+# 锁文件 lockfileVersion 9.0，需 pnpm 9+
+ARG PNPM_VERSION=9
 WORKDIR /frontend
-COPY frontend/package.json ./
-RUN npm config set registry "$NPM_REGISTRY" && npm install
+RUN npm install -g "pnpm@${PNPM_VERSION}" --registry "$NPM_REGISTRY"
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm config set registry "$NPM_REGISTRY" && pnpm install --frozen-lockfile
 COPY frontend/ ./
-RUN npm run build
+RUN pnpm run build
 
 # --- 后端运行 ---
 FROM ${REGISTRY}python:3.11-slim
