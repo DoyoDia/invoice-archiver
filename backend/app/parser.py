@@ -23,19 +23,44 @@ _HALF_X = 300.0       # 左(购买方) / 右(销售方) 分界
 _Y_TOL = 4.0          # 同一行的 y 容差
 _BASE_HEADER_Y = 22.7  # 标准模板中“电子发票”表头的 y，块平移到此对齐
 
-_NAME_MAX_X = 115.0   # 项目名称列右界
-_SPEC_MAX_X = 188.0   # 规格型号列右界（之后为数值列）
-
 _TAXID_RE = re.compile(r"^[0-9A-Z]{15,20}$")
 _PCT_RE = re.compile(r"^-?\d+(?:\.\d+)?%$")
 _NUM_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 
-# 标准全电发票明细数值列的中心 x 坐标（模板固定，跨样本一致）
-_COL_CENTERS = {"单位": 199.0, "数量": 272.0, "单价": 343.0, "金额": 415.0, "税率": 471.0, "税额": 565.0}
+# 标准全电发票的列中心（找不到表头时的兜底；不同模板列数/位置会变）
+_DEFAULT_COLS = {"单位": 199.0, "数量": 272.0, "单价": 343.0, "金额": 415.0, "税率": 471.0, "税额": 565.0}
+_HEADER_LABELS = {"项目名称", "规格型号", "单位", "数量", "单价", "金额", "税额"}
 
 
 def _same_line(a: float, b: float) -> bool:
     return abs(a - b) <= _Y_TOL
+
+
+def _derive_columns(words: List[Word]) -> Tuple[Dict[str, float], float]:
+    """从表头行推导各列中心 x（不同发票模板列数与位置不同，如客运发票无规格/单位）。
+
+    表头里“单 位”“数 量”等会被拆成单字，按相邻间距合并还原为整列标签。
+    """
+    hy = next((y0 for x0, y0, x1, y1, t in words if t == "项目名称"), None)
+    if hy is None:
+        return dict(_DEFAULT_COLS), 150.0
+
+    row = sorted(((x0, x1, t) for x0, y0, x1, y1, t in words if _same_line(y0, hy)), key=lambda w: w[0])
+    groups: List[List] = []
+    for x0, x1, t in row:
+        if groups and x0 - groups[-1][1] < 12:  # 相邻单字 → 同一列标签
+            groups[-1][1], groups[-1][2] = x1, groups[-1][2] + t
+        else:
+            groups.append([x0, x1, t])
+
+    cols: Dict[str, float] = {}
+    for x0, x1, label in groups:
+        center = (x0 + x1) / 2
+        if "税率" in label or "征收率" in label:
+            cols["税率"] = center
+        elif label in _HEADER_LABELS:
+            cols[label] = center
+    return cols, hy
 
 
 def parse_invoices(pdf_path: Path) -> List[dict]:
@@ -115,11 +140,12 @@ def _parse_block(words: List[Word]) -> dict:
             if inv[side]["纳税人识别号"] is None:
                 inv[side]["纳税人识别号"] = t
 
-    total_amount, total_tax, grand_upper, grand_lower = _parse_totals(words)
+    cols, header_y = _derive_columns(words)
+    total_amount, total_tax, grand_upper, grand_lower = _parse_totals(words, cols)
     inv["合计"] = {"金额": total_amount, "税额": total_tax}
     inv["价税合计"] = {"大写": grand_upper, "小写": grand_lower}
 
-    inv["_rows"] = _item_rows(words)
+    inv["_rows"] = _item_rows(words, cols, header_y)
     inv["_raw_text"] = " ".join(t for *_, t in sorted(words, key=lambda w: (round(w[1]), w[0])))
     return inv
 
@@ -160,7 +186,7 @@ def _num_in_col(words: List[Word], center_x: float, row_y: float) -> Optional[st
     return None
 
 
-def _parse_totals(words: List[Word]):
+def _parse_totals(words: List[Word], cols: Dict[str, float]):
     """以标签为锚定位合计/价税合计，兼容 ¥ 与数字分离、含小计行、版面高度变化。"""
     jy = next((y0 for x0, y0, x1, y1, t in words if "价税合计" in t), None)
     if jy is None:
@@ -178,18 +204,21 @@ def _parse_totals(words: List[Word]):
 
     # 合计行：定位“合”/“合计”标签（区别于“小计”），再读金额/税额两列
     hy = next((y0 for x0, y0, x1, y1, t in words if x0 < 150 and t in ("合", "合计")), None)
-    total_amount = _num_in_col(words, _COL_CENTERS["金额"], hy) if hy is not None else None
-    total_tax = _num_in_col(words, _COL_CENTERS["税额"], hy) if hy is not None else None
+    amt_cx = cols.get("金额", _DEFAULT_COLS["金额"])
+    tax_cx = cols.get("税额", _DEFAULT_COLS["税额"])
+    total_amount = _num_in_col(words, amt_cx, hy) if hy is not None else None
+    total_tax = _num_in_col(words, tax_cx, hy) if hy is not None else None
     return total_amount, total_tax, grand_upper, grand_lower
 
 
-def _item_rows(words: List[Word]) -> List[dict]:
+def _item_rows(words: List[Word], cols: Dict[str, float], header_y: float) -> List[dict]:
     """提取明细区域的原始行（不最终成条，留待跨页拼接后统一处理）。"""
-    header_y = next((y0 for x0, y0, x1, y1, t in words if t == "项目名称"), 150.0)
-    # 明细下界：金额列首个 ¥（合计行）或价税合计标签
-    money_ys = [y0 for x0, y0, x1, y1, t in words if t.startswith("¥") and 390 <= x0 <= 430 and y0 > header_y]
+    amt_cx = cols.get("金额", _DEFAULT_COLS["金额"])
+    # 明细下界：金额列首个 ¥（合计/小计行）、“合”标签、或价税合计，取最靠上者
+    money_ys = [y0 for x0, y0, x1, y1, t in words if t.startswith("¥") and abs((x0 + x1) / 2 - amt_cx) <= 30 and y0 > header_y]
+    hj_y = next((y0 for x0, y0, x1, y1, t in words if x0 < 150 and t in ("合", "合计", "小") and y0 > header_y), float("inf"))
     jy = next((y0 for x0, y0, x1, y1, t in words if "价税合计" in t and y0 > header_y), float("inf"))
-    bottom = min([*money_ys, jy], default=float("inf"))
+    bottom = min([*money_ys, hj_y, jy], default=float("inf"))
 
     buckets: "OrderedDict[float, List[Word]]" = OrderedDict()
     for w in sorted(words, key=lambda w: (round(w[1], 1), w[0])):
@@ -201,14 +230,18 @@ def _item_rows(words: List[Word]) -> List[dict]:
     rows = []
     for y in sorted(buckets):
         cells = sorted(buckets[y], key=lambda w: w[0])
-        name = "".join(t for x0, y0, x1, y1, t in cells if x0 < _NAME_MAX_X)
-        spec = "".join(t for x0, y0, x1, y1, t in cells if _NAME_MAX_X <= x0 < _SPEC_MAX_X)
+        name = spec = ""
         nums: Dict[str, str] = {}
         for x0, y0, x1, y1, t in cells:
-            if x0 < _SPEC_MAX_X or t.startswith("¥"):
+            if t.startswith("¥"):
                 continue
-            col = min(_COL_CENTERS, key=lambda c: abs(_COL_CENTERS[c] - (x0 + x1) / 2))
-            nums.setdefault(col, t)
+            col = min(cols, key=lambda c: abs(cols[c] - (x0 + x1) / 2))
+            if col == "项目名称":
+                name += t
+            elif col == "规格型号":
+                spec += t
+            else:
+                nums.setdefault(col, t)
         rows.append({"name": name, "spec": spec, "nums": nums})
     return rows
 
