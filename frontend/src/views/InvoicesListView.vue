@@ -23,6 +23,16 @@
         <a-form-item label="日期">
           <a-range-picker v-model:value="dateRange" format="YYYY-MM-DD" />
         </a-form-item>
+        <a-form-item label="标签">
+          <a-select
+            v-model:value="filters.tag"
+            show-search
+            allow-clear
+            placeholder="按标签筛选"
+            style="width: 160px"
+            :options="tagOptions"
+          />
+        </a-form-item>
         <a-form-item>
           <a-space>
             <a-button type="primary" @click="onSearch" :loading="invoiceStore.loading">查询</a-button>
@@ -31,6 +41,25 @@
             <a-tooltip title="发票号前加单引号，避免老版本 Excel 转成科学计数法">
               <a-button @click="onExportQuoted" :loading="exportingQuoted">导出'csv'</a-button>
             </a-tooltip>
+            <a-popover trigger="click" title="管理标签" placement="bottomRight">
+              <template #content>
+                <div v-if="allTags.length" class="tag-manage">
+                  <div v-for="t in allTags" :key="t.id" class="tag-manage-row">
+                    <span>{{ t.name }}</span>
+                    <a-popconfirm
+                      title="确认删除该标签？将从所有发票上移除"
+                      ok-text="删除"
+                      cancel-text="取消"
+                      @confirm="onDeleteTag(t)"
+                    >
+                      <a-button type="text" danger size="small">删除</a-button>
+                    </a-popconfirm>
+                  </div>
+                </div>
+                <a-empty v-else :image="false" description="暂无标签" />
+              </template>
+              <a-button>管理标签</a-button>
+            </a-popover>
           </a-space>
         </a-form-item>
       </a-form>
@@ -45,16 +74,26 @@
         :pagination="paginationConfig"
         row-key="invoice_id"
         :loading="invoiceStore.loading"
+        :row-class-name="rowClassName"
         @change="onTableChange"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
-            <a-tag :color="statusColorMap[record.status]">{{ statusLabelMap[record.status] }}</a-tag>
+            <a-tag v-if="record.deleted" color="default">删除</a-tag>
+            <a-tag v-else :color="statusColorMap[record.status]">{{ statusLabelMap[record.status] }}</a-tag>
           </template>
           <template v-else-if="column.key === 'invoice_no'">
             <router-link :to="{ name: 'invoice-detail', params: { invoiceNo: record.invoice_no } }">
               {{ record.invoice_no }}
             </router-link>
+          </template>
+          <template v-else-if="column.key === 'tags'">
+            <a-tag v-for="tag in record.tags" :key="tag" color="blue">{{ tag }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'action'">
+            <a-button type="link" size="small" @click="onToggleDeleted(record)">
+              {{ record.deleted ? "取消删除" : "标记删除" }}
+            </a-button>
           </template>
         </template>
       </a-table>
@@ -67,15 +106,62 @@ import { computed, onMounted, reactive, ref } from "vue";
 import type { Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { useInvoiceStore } from "../stores/invoiceStore";
-import { exportInvoices, fetchSummary } from "../services/invoiceService";
-import type { InvoiceCounts, InvoiceFilter, InvoiceStatus } from "../types/invoice";
+import {
+  deleteTag,
+  exportInvoices,
+  fetchSummary,
+  fetchTags,
+  setInvoiceDeleted
+} from "../services/invoiceService";
+import type {
+  InvoiceCounts,
+  InvoiceFilter,
+  InvoiceStatus,
+  InvoiceSummaryRecord,
+  Tag
+} from "../types/invoice";
 
 const invoiceStore = useInvoiceStore();
 
-const filters = reactive<InvoiceFilter>({ invoice_no: "", status: undefined });
+const filters = reactive<InvoiceFilter>({ invoice_no: "", status: undefined, tag: undefined });
 const dateRange = ref<[Dayjs, Dayjs] | null>(null);
 const exporting = ref(false);
 const exportingQuoted = ref(false);
+
+const allTags = ref<Tag[]>([]);
+const tagOptions = computed(() => allTags.value.map((t) => ({ value: t.name, label: t.name })));
+
+const loadTags = async () => {
+  try {
+    allTags.value = await fetchTags();
+  } catch {
+    /* 标签加载失败不阻塞列表 */
+  }
+};
+
+const onDeleteTag = async (tag: Tag) => {
+  try {
+    await deleteTag(tag.id);
+    message.success(`已删除标签「${tag.name}」`);
+    if (filters.tag === tag.name) filters.tag = undefined;
+    await loadTags();
+    invoiceStore.loadInvoices({});
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+};
+
+const rowClassName = (record: InvoiceSummaryRecord) => (record.deleted ? "row-deleted" : "");
+
+const onToggleDeleted = async (record: InvoiceSummaryRecord) => {
+  try {
+    await setInvoiceDeleted(record.invoice_no, !record.deleted);
+    invoiceStore.loadInvoices({});
+    refreshSummary();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+};
 
 const counts = ref<InvoiceCounts>({ total: 0, ok: 0, warn: 0, error: 0, duplicate: 0 });
 const summaryCards: Array<{ key: keyof InvoiceCounts; label: string; color: string }> = [
@@ -103,7 +189,9 @@ const columns = [
   { title: "金额", dataIndex: "total_amount", key: "total_amount" },
   { title: "税额", dataIndex: "total_tax", key: "total_tax" },
   { title: "价税合计", dataIndex: "grand_total", key: "grand_total" },
-  { title: "状态", dataIndex: "status", key: "status" }
+  { title: "标签", dataIndex: "tags", key: "tags" },
+  { title: "状态", dataIndex: "status", key: "status" },
+  { title: "操作", key: "action" }
 ];
 
 const paginationConfig = computed(() => ({
@@ -139,9 +227,10 @@ const onSearch = () => {
 const onReset = () => {
   filters.invoice_no = "";
   filters.status = undefined;
+  filters.tag = undefined;
   dateRange.value = null;
   invoiceStore.resetFilter();
-  invoiceStore.loadInvoices({ invoice_no: "", status: undefined, date_start: undefined, date_end: undefined });
+  invoiceStore.loadInvoices({ invoice_no: "", status: undefined, tag: undefined, date_start: undefined, date_end: undefined });
 };
 
 const onTableChange = (pagination: { current: number; pageSize: number }) => {
@@ -171,6 +260,7 @@ const onExportQuoted = () => downloadCsv(exportingQuoted, true, "invoices_quoted
 onMounted(() => {
   invoiceStore.loadInvoices({});
   refreshSummary();
+  loadTags();
 });
 </script>
 
@@ -186,5 +276,28 @@ onMounted(() => {
 
 .mt-16 {
   margin-top: 16px;
+}
+
+.tag-manage {
+  max-height: 240px;
+  overflow: auto;
+  min-width: 180px;
+}
+
+.tag-manage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+</style>
+
+<style>
+.row-deleted td {
+  color: #bfbfbf !important;
+}
+.row-deleted a {
+  color: #bfbfbf !important;
 }
 </style>

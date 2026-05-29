@@ -17,9 +17,20 @@
                 <a-descriptions-item label="类型">{{ detail.invoice.invoice_type }}</a-descriptions-item>
                 <a-descriptions-item label="开票日期">{{ detail.invoice.invoice_date }}</a-descriptions-item>
                 <a-descriptions-item label="状态">
-                  <a-tag :color="statusColorMap[detail.invoice.status]">
+                  <a-tag v-if="detail.invoice.deleted" color="default">删除</a-tag>
+                  <a-tag v-else :color="statusColorMap[detail.invoice.status]">
                     {{ statusLabelMap[detail.invoice.status] }}
                   </a-tag>
+                </a-descriptions-item>
+                <a-descriptions-item label="标签">
+                  <a-select
+                    v-model:value="editTags"
+                    mode="tags"
+                    placeholder="选择或输入标签（回车创建）"
+                    style="width: 100%"
+                    :options="tagOptions"
+                    @blur="saveTags"
+                  />
                 </a-descriptions-item>
               </a-descriptions>
             </a-card>
@@ -77,6 +88,9 @@
         </a-card>
 
         <div class="actions">
+          <a-button :danger="!detail.invoice.deleted" @click="onToggleDeleted" :loading="togglingDeleted">
+            {{ detail.invoice.deleted ? "取消删除" : "标记删除" }}
+          </a-button>
           <a-button type="primary" @click="onDownloadSource" :loading="downloading">
             下载原始文件
           </a-button>
@@ -91,7 +105,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { fetchInvoiceDetail, downloadSourceFile } from "../services/invoiceService";
+import { message } from "ant-design-vue";
+import {
+  downloadSourceFile,
+  fetchInvoiceDetail,
+  fetchTags,
+  setInvoiceDeleted,
+  setInvoiceTags
+} from "../services/invoiceService";
 import type { InvoiceDetail, InvoiceStatus } from "../types/invoice";
 
 const props = defineProps<{ invoiceNo: string }>();
@@ -101,7 +122,11 @@ const invoiceNo = props.invoiceNo ?? (route.params.invoiceNo as string);
 const detail = ref<InvoiceDetail | null>(null);
 const loading = ref(false);
 const downloading = ref(false);
+const togglingDeleted = ref(false);
 const errorMessage = ref("");
+
+const editTags = ref<string[]>([]);
+const tagOptions = ref<{ value: string; label: string }[]>([]);
 
 const statusLabelMap: Record<InvoiceStatus, string> = {
   ok: "正常",
@@ -132,10 +157,41 @@ const loadDetail = async () => {
   errorMessage.value = "";
   try {
     detail.value = await fetchInvoiceDetail(invoiceNo);
+    editTags.value = [...detail.value.invoice.tags];
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : String(err);
   } finally {
     loading.value = false;
+  }
+};
+
+const saveTags = async () => {
+  if (!detail.value) return;
+  const current = detail.value.invoice.tags;
+  const next = editTags.value;
+  if (current.length === next.length && current.every((t) => next.includes(t))) return;
+  try {
+    await setInvoiceTags(invoiceNo, next);
+    detail.value.invoice.tags = [...next];
+    message.success("标签已保存");
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    editTags.value = [...current];
+  }
+};
+
+const onToggleDeleted = async () => {
+  if (!detail.value) return;
+  togglingDeleted.value = true;
+  try {
+    const next = !detail.value.invoice.deleted;
+    await setInvoiceDeleted(invoiceNo, next);
+    detail.value.invoice.deleted = next;
+    message.success(next ? "已标记删除" : "已取消删除");
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    togglingDeleted.value = false;
   }
 };
 
@@ -164,8 +220,13 @@ const onDownloadSource = async () => {
   }
 };
 
-onMounted(() => {
-  loadDetail();
+onMounted(async () => {
+  await loadDetail();
+  try {
+    tagOptions.value = (await fetchTags()).map((t) => ({ value: t.name, label: t.name }));
+  } catch {
+    /* 标签加载失败不影响详情 */
+  }
 });
 </script>
 

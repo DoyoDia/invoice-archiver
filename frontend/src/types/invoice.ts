@@ -10,8 +10,15 @@ export interface InvoiceSummaryRecord {
   total_tax: string | null;
   grand_total: string | null;
   status: InvoiceStatus;
+  deleted: boolean;
+  tags: string[];
   source_file_id: number;
   uploaded_at: string;
+}
+
+export interface Tag {
+  id: number;
+  name: string;
 }
 
 export interface InvoiceDetail {
@@ -24,6 +31,8 @@ export interface InvoiceDetail {
     totals: { amount: string | null; tax: string | null; grand: string | null };
     status: InvoiceStatus;
     notes: string | null;
+    deleted: boolean;
+    tags: string[];
     source_file_id: number;
     created_at: string;
   };
@@ -46,6 +55,7 @@ export interface InvoiceFilter {
   status?: InvoiceStatus;
   date_start?: string;
   date_end?: string;
+  tag?: string;
 }
 
 export interface InvoiceCounts {

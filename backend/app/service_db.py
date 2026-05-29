@@ -29,15 +29,16 @@ class InvoiceServiceDB:
         self.session_factory = session_factory
         self.llm: Optional[LLMService] = LLMService(settings) if settings.llm_enabled else None
 
-    def ingest_files(self, files: List[UploadFile]) -> List[dict]:
+    def ingest_files(self, files: List[UploadFile], tags: Optional[List[str]] = None) -> List[dict]:
         if not files:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files uploaded")
+        tags = [t.strip() for t in (tags or []) if t.strip()]
         results: List[dict] = []
         for upload in files:
-            results.extend(self._ingest_one(upload))
+            results.extend(self._ingest_one(upload, tags))
         return results
 
-    def _ingest_one(self, upload: UploadFile) -> List[dict]:
+    def _ingest_one(self, upload: UploadFile, tags: List[str]) -> List[dict]:
         contents = upload.file.read()
         if not contents:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
@@ -78,11 +79,15 @@ class InvoiceServiceDB:
                 results: List[dict] = []
                 for inv in parsed:
                     raw_text = inv.pop("_raw_text", "")
-                    record = self._build_record(repo, asset.id, inv, raw_text)
-                    repo.create_invoice(record)
-                    results.append(
-                        {"file_id": asset.id, "invoice_no": record.invoice_no, "status": record.status.value}
-                    )
+                    record = self._build_record(repo, asset.id, inv, raw_text, tags)
+                    revived = repo.revive_if_deleted(record) if record.invoice_no else None
+                    final = revived or repo.create_invoice(record)
+                    results.append({
+                        "file_id": asset.id,
+                        "invoice_no": final.invoice_no,
+                        "status": final.status.value,
+                        "revived": revived is not None,
+                    })
                 return results
             except Exception as exc:
                 repo.mark_failed(asset.id, str(exc))
@@ -110,7 +115,7 @@ class InvoiceServiceDB:
         return any(it.get("项目名称") for it in items)
 
     def _build_record(
-        self, repo: InvoiceRepository, file_id: int, parsed: dict, raw_text: str
+        self, repo: InvoiceRepository, file_id: int, parsed: dict, raw_text: str, tags: List[str]
     ) -> InvoiceRecord:
         buyer = parsed.get("购买方信息") or {}
         seller = parsed.get("销售方信息") or {}
@@ -152,7 +157,7 @@ class InvoiceServiceDB:
             if item.tax_rate is not None and allowed and item.tax_rate not in allowed:
                 warn(f"项目[{idx}]税率异常: {item.tax_rate}%")
 
-        if invoice_no and repo.count_by_invoice_no(invoice_no) > 0:
+        if invoice_no and repo.count_active_by_invoice_no(invoice_no) > 0:
             notes.append("重复发票号")
             if record_status in (InvoiceStatus.OK, InvoiceStatus.WARN):
                 record_status = InvoiceStatus.DUPLICATE
@@ -175,13 +180,14 @@ class InvoiceServiceDB:
             raw_text=raw_text,
             raw_json=parsed,
             line_items=line_items,
+            tags=list(tags),
         )
 
     def list_invoices(
-        self, *, page: int, page_size: int, filters: Dict[str, Optional[str]]
+        self, *, page: int, page_size: int, filters: Dict[str, Optional[str]], include_deleted: bool = True
     ) -> Tuple[List[InvoiceRecord], int]:
         with self.session_factory() as session:
-            return InvoiceRepository(session).list_invoices(filters, page, page_size)
+            return InvoiceRepository(session).list_invoices(filters, page, page_size, include_deleted)
 
     def get_invoice(self, invoice_no: str) -> Optional[InvoiceRecord]:
         with self.session_factory() as session:
@@ -194,6 +200,29 @@ class InvoiceServiceDB:
     def status_counts(self) -> Dict[str, int]:
         with self.session_factory() as session:
             return InvoiceRepository(session).status_counts()
+
+    # --- 标签 / 软删除 ---
+
+    def list_tags(self, q: Optional[str] = None) -> List[dict]:
+        with self.session_factory() as session:
+            return [{"id": i, "name": n} for i, n in InvoiceRepository(session).list_tags(q)]
+
+    def create_tag(self, name: str) -> dict:
+        with self.session_factory() as session:
+            i, n = InvoiceRepository(session).create_tag(name)
+            return {"id": i, "name": n}
+
+    def delete_tag(self, tag_id: int) -> bool:
+        with self.session_factory() as session:
+            return InvoiceRepository(session).delete_tag(tag_id)
+
+    def set_invoice_tags(self, invoice_no: str, names: List[str]) -> Optional[InvoiceRecord]:
+        with self.session_factory() as session:
+            return InvoiceRepository(session).set_invoice_tags(invoice_no, names)
+
+    def set_deleted(self, invoice_no: str, deleted: bool) -> Optional[InvoiceRecord]:
+        with self.session_factory() as session:
+            return InvoiceRepository(session).set_deleted(invoice_no, deleted)
 
     def _parse_line_items(self, items: List[Dict]) -> List[InvoiceLineItem]:
         result: List[InvoiceLineItem] = []

@@ -62,5 +62,7 @@ class InvoiceRecord:
     raw_text: str
     raw_json: dict
     notes: Optional[str] = None
+    deleted: bool = False
     line_items: List[InvoiceLineItem] = field(default_factory=list)
+    tags: List[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
