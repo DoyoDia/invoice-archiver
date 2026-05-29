@@ -4,7 +4,8 @@ import type {
   InvoiceCounts,
   InvoiceDetail,
   InvoiceFilter,
-  InvoiceSummaryRecord
+  InvoiceSummaryRecord,
+  Tag
 } from "../types/invoice";
 import http from "./http";
 
@@ -33,12 +34,31 @@ export const fetchSummary = async (): Promise<InvoiceCounts> => {
   };
 };
 
-export const uploadInvoices = async (files: File[]): Promise<IngestResult[]> => {
+export const uploadInvoices = async (files: File[], tags: string[] = []): Promise<IngestResult[]> => {
   const formData = new FormData();
   files.forEach((file) => formData.append("file", file, file.name));
+  tags.forEach((t) => formData.append("tags", t));
   const { data } = await http.post<{ results: IngestResult[] }>("/invoices", formData);
   return data.results;
 };
+
+export const fetchTags = async (q?: string): Promise<Tag[]> => {
+  const { data } = await http.get<Tag[]>("/tags", { params: q ? { q } : {} });
+  return data;
+};
+
+export const createTag = async (name: string): Promise<Tag> => {
+  const { data } = await http.post<Tag>("/tags", { name });
+  return data;
+};
+
+export const deleteTag = (id: number) => http.delete(`/tags/${id}`);
+
+export const setInvoiceTags = (invoiceNo: string, tags: string[]) =>
+  http.put(`/invoices/${invoiceNo}/tags`, { tags });
+
+export const setInvoiceDeleted = (invoiceNo: string, deleted: boolean) =>
+  http.post(`/invoices/${invoiceNo}/deleted`, { deleted });
 
 export const exportInvoices = (params: ExportParams, quoteNo = false) => {
   return http.get<Blob>("/export.csv", {

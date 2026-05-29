@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .database import FileAssetDB, InvoiceDB, LineItemDB
+from .database import FileAssetDB, InvoiceDB, LineItemDB, TagDB
 from .models import (
     FileAsset,
     FileStatus,
@@ -16,6 +16,18 @@ from .models import (
     InvoiceRecord,
     InvoiceStatus,
 )
+
+
+def _line_item_db(item: InvoiceLineItem) -> LineItemDB:
+    return LineItemDB(
+        item_name=item.item_name,
+        spec_model=item.spec_model,
+        quantity=item.quantity,
+        unit_price=item.unit_price,
+        amount=item.amount,
+        tax_rate=item.tax_rate,
+        tax_amount=item.tax_amount,
+    )
 
 
 class InvoiceRepository:
@@ -78,40 +90,131 @@ class InvoiceRepository:
             grand_total=invoice.grand_total,
             status=invoice.status.value,
             notes=invoice.notes,
+            deleted=invoice.deleted,
             source_file_id=invoice.source_file_id,
             raw_text=invoice.raw_text,
             raw_json=invoice.raw_json,
-            line_items=[
-                LineItemDB(
-                    item_name=item.item_name,
-                    spec_model=item.spec_model,
-                    quantity=item.quantity,
-                    unit_price=item.unit_price,
-                    amount=item.amount,
-                    tax_rate=item.tax_rate,
-                    tax_amount=item.tax_amount,
-                )
-                for item in invoice.line_items
-            ],
+            line_items=[_line_item_db(item) for item in invoice.line_items],
+            tags=self._get_or_create_tags(invoice.tags),
         )
         self.session.add(db_invoice)
         self.session.flush()
         invoice.id = db_invoice.id
         return invoice
 
-    def count_by_invoice_no(self, invoice_no: str) -> int:
-        stmt = select(func.count()).select_from(InvoiceDB).where(InvoiceDB.invoice_no == invoice_no)
+    def revive_if_deleted(self, invoice: InvoiceRecord) -> Optional[InvoiceRecord]:
+        """同号且已标记删除的记录：用新解析结果更新并取消删除标记，避免重复。"""
+        stmt = (
+            select(InvoiceDB)
+            .where(InvoiceDB.invoice_no == invoice.invoice_no, InvoiceDB.deleted.is_(True))
+            .options(selectinload(InvoiceDB.line_items), selectinload(InvoiceDB.tags))
+            .order_by(InvoiceDB.created_at.desc())
+            .limit(1)
+        )
+        db = self.session.execute(stmt).scalar_one_or_none()
+        if db is None:
+            return None
+        db.invoice_type = invoice.invoice_type
+        db.invoice_date = invoice.invoice_date
+        db.buyer_name, db.buyer_tax_id = invoice.buyer_name, invoice.buyer_tax_id
+        db.seller_name, db.seller_tax_id = invoice.seller_name, invoice.seller_tax_id
+        db.total_amount, db.total_tax, db.grand_total = invoice.total_amount, invoice.total_tax, invoice.grand_total
+        db.status, db.notes = invoice.status.value, invoice.notes
+        db.deleted = False
+        db.source_file_id = invoice.source_file_id
+        db.raw_text, db.raw_json = invoice.raw_text, invoice.raw_json
+        db.line_items = [_line_item_db(item) for item in invoice.line_items]
+        if invoice.tags:
+            existing = {t.name for t in db.tags}
+            db.tags.extend(t for t in self._get_or_create_tags(invoice.tags) if t.name not in existing)
+        self.session.flush()
+        return self._to_record(db)
+
+    def count_active_by_invoice_no(self, invoice_no: str) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(InvoiceDB)
+            .where(InvoiceDB.invoice_no == invoice_no, InvoiceDB.deleted.is_(False))
+        )
         return self.session.execute(stmt).scalar_one()
 
-    def list_invoices(
-        self, filters: Dict[str, Optional[str]], page: int, page_size: int
-    ) -> Tuple[List[InvoiceRecord], int]:
-        stmt = select(InvoiceDB).options(selectinload(InvoiceDB.line_items))
+    # --- 标签 ---
 
+    def _get_or_create_tags(self, names: List[str]) -> List[TagDB]:
+        tags: List[TagDB] = []
+        seen = set()
+        for raw in names:
+            name = raw.strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            tag = self.session.execute(select(TagDB).where(TagDB.name == name)).scalar_one_or_none()
+            if tag is None:
+                tag = TagDB(name=name)
+                self.session.add(tag)
+                self.session.flush()
+            tags.append(tag)
+        return tags
+
+    def list_tags(self, q: Optional[str] = None) -> List[Tuple[int, str]]:
+        stmt = select(TagDB.id, TagDB.name)
+        if q:
+            stmt = stmt.where(TagDB.name.contains(q))
+        return list(self.session.execute(stmt.order_by(TagDB.name)).all())
+
+    def create_tag(self, name: str) -> Tuple[int, str]:
+        tag = self._get_or_create_tags([name])[0]
+        return tag.id, tag.name
+
+    def delete_tag(self, tag_id: int) -> bool:
+        tag = self.session.get(TagDB, tag_id)
+        if tag is None:
+            return False
+        self.session.delete(tag)  # 关联表 invoice_tags 由级联清理
+        return True
+
+    def set_invoice_tags(self, invoice_no: str, names: List[str]) -> Optional[InvoiceRecord]:
+        db = self._latest_db(invoice_no, with_tags=True)
+        if db is None:
+            return None
+        db.tags = self._get_or_create_tags(names)
+        self.session.flush()
+        return self._to_record(db)
+
+    def set_deleted(self, invoice_no: str, deleted: bool) -> Optional[InvoiceRecord]:
+        db = self._latest_db(invoice_no, with_tags=True)
+        if db is None:
+            return None
+        db.deleted = deleted
+        self.session.flush()
+        return self._to_record(db)
+
+    def _latest_db(self, invoice_no: str, with_tags: bool = False) -> Optional[InvoiceDB]:
+        opts = [selectinload(InvoiceDB.line_items)]
+        if with_tags:
+            opts.append(selectinload(InvoiceDB.tags))
+        stmt = (
+            select(InvoiceDB)
+            .where(InvoiceDB.invoice_no == invoice_no)
+            .options(*opts)
+            .order_by(InvoiceDB.created_at.desc())
+            .limit(1)
+        )
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    def list_invoices(
+        self, filters: Dict[str, Optional[str]], page: int, page_size: int, include_deleted: bool = True
+    ) -> Tuple[List[InvoiceRecord], int]:
+        stmt = select(InvoiceDB).options(selectinload(InvoiceDB.line_items), selectinload(InvoiceDB.tags))
+
+        if not include_deleted:
+            stmt = stmt.where(InvoiceDB.deleted.is_(False))
         if filters.get("invoice_no"):
             stmt = stmt.where(InvoiceDB.invoice_no.contains(filters["invoice_no"]))
         if filters.get("status"):
             stmt = stmt.where(InvoiceDB.status == filters["status"])
+        if filters.get("tag"):
+            stmt = stmt.where(InvoiceDB.tags.any(TagDB.name == filters["tag"]))
         if filters.get("date_start"):
             try:
                 stmt = stmt.where(InvoiceDB.invoice_date >= date.fromisoformat(filters["date_start"]))
@@ -131,18 +234,15 @@ class InvoiceRepository:
         return records, total
 
     def get_invoice_by_no(self, invoice_no: str) -> Optional[InvoiceRecord]:
-        stmt = (
-            select(InvoiceDB)
-            .where(InvoiceDB.invoice_no == invoice_no)
-            .options(selectinload(InvoiceDB.line_items))
-            .order_by(InvoiceDB.created_at.desc())
-            .limit(1)
-        )
-        db_invoice = self.session.execute(stmt).scalar_one_or_none()
+        db_invoice = self._latest_db(invoice_no, with_tags=True)
         return self._to_record(db_invoice) if db_invoice else None
 
     def status_counts(self) -> Dict[str, int]:
-        stmt = select(InvoiceDB.status, func.count()).group_by(InvoiceDB.status)
+        stmt = (
+            select(InvoiceDB.status, func.count())
+            .where(InvoiceDB.deleted.is_(False))
+            .group_by(InvoiceDB.status)
+        )
         counts = {status: count for status, count in self.session.execute(stmt).all()}
         counts["total"] = sum(counts.values())
         return counts
@@ -162,6 +262,7 @@ class InvoiceRepository:
             grand_total=db_invoice.grand_total,
             status=InvoiceStatus(db_invoice.status),
             notes=db_invoice.notes,
+            deleted=db_invoice.deleted,
             source_file_id=db_invoice.source_file_id,
             raw_text=db_invoice.raw_text,
             raw_json=db_invoice.raw_json,
@@ -178,4 +279,5 @@ class InvoiceRepository:
                 )
                 for i in db_invoice.line_items
             ],
+            tags=[t.name for t in db_invoice.tags],
         )

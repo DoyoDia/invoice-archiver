@@ -6,12 +6,15 @@ from typing import List, Optional
 
 from sqlalchemy import (
     JSON,
+    Boolean,
+    Column,
     Date,
     DateTime,
     ForeignKey,
     Integer,
     Numeric,
     String,
+    Table,
     Text,
     create_engine,
     text,
@@ -21,6 +24,21 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship,
 
 class Base(DeclarativeBase):
     pass
+
+
+invoice_tags = Table(
+    "invoice_tags",
+    Base.metadata,
+    Column("invoice_id", ForeignKey("invoices.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
+class TagDB(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
 
 
 class FileAssetDB(Base):
@@ -57,6 +75,7 @@ class InvoiceDB(Base):
     grand_total: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 2), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="ok", index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     source_file_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("file_assets.id", ondelete="CASCADE"), nullable=False
     )
@@ -70,6 +89,7 @@ class InvoiceDB(Base):
     line_items: Mapped[List["LineItemDB"]] = relationship(
         back_populates="invoice", cascade="all, delete-orphan"
     )
+    tags: Mapped[List["TagDB"]] = relationship(secondary=invoice_tags, order_by="TagDB.name")
 
 
 class LineItemDB(Base):
@@ -101,3 +121,9 @@ def create_session_factory(engine):
 
 def init_db(engine) -> None:
     Base.metadata.create_all(engine)
+    # 轻量迁移：create_all 不会给已存在的表补列，这里为旧库补 deleted 列
+    if engine.dialect.name == "sqlite":
+        with engine.begin() as conn:
+            cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(invoices)")]
+            if "deleted" not in cols:
+                conn.exec_driver_sql("ALTER TABLE invoices ADD COLUMN deleted BOOLEAN NOT NULL DEFAULT 0")

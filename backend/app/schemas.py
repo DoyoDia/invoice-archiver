@@ -11,10 +11,28 @@ class IngestResultItem(BaseModel):
     invoice_no: Optional[str] = None
     status: str
     error: Optional[str] = None
+    revived: bool = False
 
 
 class UploadResponse(BaseModel):
     results: List[IngestResultItem]
+
+
+class TagItem(BaseModel):
+    id: int
+    name: str
+
+
+class CreateTagRequest(BaseModel):
+    name: str
+
+
+class SetTagsRequest(BaseModel):
+    tags: List[str]
+
+
+class SetDeletedRequest(BaseModel):
+    deleted: bool
 
 
 class InvoiceListItem(BaseModel):
@@ -27,6 +45,8 @@ class InvoiceListItem(BaseModel):
     total_tax: Optional[str]
     grand_total: Optional[str]
     status: str
+    deleted: bool
+    tags: List[str]
     source_file_id: int
     uploaded_at: datetime
 
@@ -57,6 +77,8 @@ class InvoiceEntity(BaseModel):
     totals: Optional[dict]
     status: str
     notes: Optional[str]
+    deleted: bool
+    tags: List[str]
     source_file_id: int
     created_at: datetime
 

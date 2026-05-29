@@ -13,7 +13,7 @@ if __package__ in (None, ""):
 
 import os
 
-from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Body, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,12 +22,16 @@ from backend.app.config import load_settings
 from backend.app.db_session import DatabaseManager
 from backend.app.dependencies import get_service, get_settings
 from backend.app.schemas import (
+    CreateTagRequest,
     IngestResultItem,
     InvoiceDetailResponse,
     InvoiceEntity,
     InvoiceListItem,
     InvoiceListResponse,
     LineItemSchema,
+    SetDeletedRequest,
+    SetTagsRequest,
+    TagItem,
     UploadResponse,
 )
 from backend.app.service_db import InvoiceServiceDB
@@ -40,12 +44,13 @@ def decimal_to_str(value: Optional[Decimal], digits: int = 2) -> Optional[str]:
     return format(value.quantize(quant), f".{digits}f")
 
 
-def _filters(invoice_no, status_filter, date_start, date_end) -> Dict[str, Optional[str]]:
+def _filters(invoice_no, status_filter, date_start, date_end, tag=None) -> Dict[str, Optional[str]]:
     return {
         "invoice_no": invoice_no,
         "status": status_filter,
         "date_start": date_start,
         "date_end": date_end,
+        "tag": tag,
     }
 
 
@@ -81,9 +86,10 @@ def build_app() -> FastAPI:
     @router.post("/invoices", response_model=UploadResponse)
     def upload_invoices(
         files: List[UploadFile] = File(..., alias="file"),
+        tags: List[str] = Form(default=[]),
         service: InvoiceServiceDB = Depends(get_service),
     ) -> UploadResponse:
-        results = service.ingest_files(files)
+        results = service.ingest_files(files, tags)
         return UploadResponse(results=[IngestResultItem(**r) for r in results])
 
     @router.get("/invoices", response_model=InvoiceListResponse)
@@ -94,12 +100,13 @@ def build_app() -> FastAPI:
         status_filter: Optional[str] = Query(None, alias="status"),
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
+        tag: Optional[str] = None,
         service: InvoiceServiceDB = Depends(get_service),
     ) -> InvoiceListResponse:
         records, total = service.list_invoices(
             page=page,
             page_size=page_size,
-            filters=_filters(invoice_no, status_filter, date_start, date_end),
+            filters=_filters(invoice_no, status_filter, date_start, date_end, tag),
         )
         items = [
             InvoiceListItem(
@@ -112,6 +119,8 @@ def build_app() -> FastAPI:
                 total_tax=decimal_to_str(r.total_tax),
                 grand_total=decimal_to_str(r.grand_total),
                 status=r.status.value,
+                deleted=r.deleted,
+                tags=r.tags,
                 source_file_id=r.source_file_id,
                 uploaded_at=r.created_at,
             )
@@ -122,6 +131,41 @@ def build_app() -> FastAPI:
     @router.get("/invoices/summary")
     def invoices_summary(service: InvoiceServiceDB = Depends(get_service)) -> Dict[str, int]:
         return service.status_counts()
+
+    @router.get("/tags", response_model=List[TagItem])
+    def list_tags(q: Optional[str] = None, service: InvoiceServiceDB = Depends(get_service)) -> List[TagItem]:
+        return [TagItem(**t) for t in service.list_tags(q)]
+
+    @router.post("/tags", response_model=TagItem)
+    def create_tag(body: CreateTagRequest, service: InvoiceServiceDB = Depends(get_service)) -> TagItem:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="标签名不能为空")
+        return TagItem(**service.create_tag(name))
+
+    @router.delete("/tags/{tag_id}")
+    def delete_tag(tag_id: int, service: InvoiceServiceDB = Depends(get_service)) -> Dict[str, bool]:
+        if not service.delete_tag(tag_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
+        return {"ok": True}
+
+    @router.put("/invoices/{invoice_no}/tags")
+    def set_invoice_tags(
+        invoice_no: str, body: SetTagsRequest, service: InvoiceServiceDB = Depends(get_service)
+    ) -> Dict[str, object]:
+        record = service.set_invoice_tags(invoice_no, body.tags)
+        if not record:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+        return {"ok": True, "tags": record.tags}
+
+    @router.post("/invoices/{invoice_no}/deleted")
+    def set_invoice_deleted(
+        invoice_no: str, body: SetDeletedRequest, service: InvoiceServiceDB = Depends(get_service)
+    ) -> Dict[str, object]:
+        record = service.set_deleted(invoice_no, body.deleted)
+        if not record:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+        return {"ok": True, "deleted": record.deleted}
 
     @router.get("/invoices/{invoice_no}", response_model=InvoiceDetailResponse)
     def get_invoice_detail(
@@ -144,6 +188,8 @@ def build_app() -> FastAPI:
             },
             status=record.status.value,
             notes=record.notes,
+            deleted=record.deleted,
+            tags=record.tags,
             source_file_id=record.source_file_id,
             created_at=record.created_at,
         )
@@ -167,13 +213,16 @@ def build_app() -> FastAPI:
         status_filter: Optional[str] = Query(None, alias="status"),
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
+        tag: Optional[str] = None,
         quote_no: bool = Query(False),
         service: InvoiceServiceDB = Depends(get_service),
     ) -> StreamingResponse:
+        # 导出排除已标记删除的发票
         records, _ = service.list_invoices(
             page=1,
             page_size=100000,
-            filters=_filters(invoice_no, status_filter, date_start, date_end),
+            filters=_filters(invoice_no, status_filter, date_start, date_end, tag),
+            include_deleted=False,
         )
         output = io.StringIO()
         writer = csv.writer(output)

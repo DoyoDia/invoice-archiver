@@ -14,6 +14,18 @@
         <p class="ant-upload-hint">单文件 ≤ 50MB，页数 ≤ 50</p>
       </a-upload-dragger>
 
+      <div class="tag-row">
+        <span class="tag-label">统一标签：</span>
+        <a-select
+          v-model:value="selectedTags"
+          mode="tags"
+          placeholder="选择或输入标签（回车创建），将应用到本批所有发票"
+          :options="tagOptions"
+          style="flex: 1"
+          :disabled="uploading"
+        />
+      </div>
+
       <a-space class="actions">
         <a-button type="primary" @click="submitUpload" :loading="uploading" :disabled="fileList.length === 0">
           上传并解析
@@ -44,12 +56,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import type { UploadProps } from "ant-design-vue";
 import { message } from "ant-design-vue";
 import { InboxOutlined } from "@ant-design/icons-vue";
 import type { UploadFile } from "ant-design-vue/es/upload/interface";
-import { uploadInvoices } from "../services/invoiceService";
+import { fetchTags, uploadInvoices } from "../services/invoiceService";
 import type { IngestResult } from "../types/invoice";
 
 type ResultRow = IngestResult & { _key: string };
@@ -57,7 +69,17 @@ type ResultRow = IngestResult & { _key: string };
 const fileList = ref<UploadFile[]>([]);
 const uploading = ref(false);
 const results = ref<ResultRow[]>([]);
+const selectedTags = ref<string[]>([]);
+const tagOptions = ref<{ value: string; label: string }[]>([]);
 let keySeq = 0;
+
+onMounted(async () => {
+  try {
+    tagOptions.value = (await fetchTags()).map((t) => ({ value: t.name, label: t.name }));
+  } catch {
+    /* 标签加载失败不影响上传 */
+  }
+});
 
 const handleBeforeUpload: UploadProps["beforeUpload"] = (file) => {
   const rawFile = file as unknown as File;
@@ -113,7 +135,7 @@ const submitUpload = async () => {
     const files = fileList.value
       .map((item) => item.originFileObj as File)
       .filter((file): file is File => file instanceof File);
-    const result = await uploadInvoices(files);
+    const result = await uploadInvoices(files, selectedTags.value);
     const stamped = result.map((r) => ({ ...r, _key: `r${keySeq++}` }));
     results.value = [...stamped, ...results.value];
     message.success(`已处理 ${files.length} 个文件，共 ${result.length} 张发票`);
@@ -134,6 +156,16 @@ const submitUpload = async () => {
 
 .upload-card {
   border-radius: 8px;
+}
+
+.tag-row {
+  display: flex;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.tag-label {
+  white-space: nowrap;
 }
 
 .actions {
