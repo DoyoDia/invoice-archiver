@@ -167,6 +167,7 @@ def build_app() -> FastAPI:
         status_filter: Optional[str] = Query(None, alias="status"),
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
+        quote_no: bool = Query(False),
         service: InvoiceServiceDB = Depends(get_service),
     ) -> StreamingResponse:
         records, _ = service.list_invoices(
@@ -181,8 +182,10 @@ def build_app() -> FastAPI:
             "total_amount", "total_tax", "grand_total", "status",
         ])
         for r in records:
+            # quote_no=True 时在发票号前加单引号，避免老版本 Excel 转成科学计数法
+            invoice_cell = f"'{r.invoice_no}" if quote_no else r.invoice_no
             writer.writerow([
-                r.invoice_no,
+                invoice_cell,
                 r.invoice_date.isoformat() if r.invoice_date else "",
                 r.buyer_name or "",
                 r.seller_name or "",
@@ -192,7 +195,8 @@ def build_app() -> FastAPI:
                 r.status.value,
             ])
         data = ("﻿" + output.getvalue()).encode("utf-8")
-        headers = {"Content-Disposition": "attachment; filename=invoices.csv"}
+        filename = "invoices_quoted.csv" if quote_no else "invoices.csv"
+        headers = {"Content-Disposition": f"attachment; filename={filename}"}
         return StreamingResponse(io.BytesIO(data), media_type="text/csv; charset=utf-8", headers=headers)
 
     @router.get("/files/{file_id}")
