@@ -23,7 +23,7 @@
     </a-card>
 
     <a-card v-if="results.length" title="解析结果" class="mt-16">
-      <a-table :columns="resultColumns" :data-source="results" row-key="file_id" size="small" :pagination="false">
+      <a-table :columns="resultColumns" :data-source="results" row-key="_key" size="small" :pagination="false">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
@@ -52,9 +52,12 @@ import type { UploadFile } from "ant-design-vue/es/upload/interface";
 import { uploadInvoices } from "../services/invoiceService";
 import type { IngestResult } from "../types/invoice";
 
+type ResultRow = IngestResult & { _key: string };
+
 const fileList = ref<UploadFile[]>([]);
 const uploading = ref(false);
-const results = ref<IngestResult[]>([]);
+const results = ref<ResultRow[]>([]);
+let keySeq = 0;
 
 const handleBeforeUpload: UploadProps["beforeUpload"] = (file) => {
   const rawFile = file as unknown as File;
@@ -111,8 +114,9 @@ const submitUpload = async () => {
       .map((item) => item.originFileObj as File)
       .filter((file): file is File => file instanceof File);
     const result = await uploadInvoices(files);
-    results.value = [...result, ...results.value];
-    message.success(`已处理 ${result.length} 个文件`);
+    const stamped = result.map((r) => ({ ...r, _key: `r${keySeq++}` }));
+    results.value = [...stamped, ...results.value];
+    message.success(`已处理 ${files.length} 个文件，共 ${result.length} 张发票`);
     clearFiles();
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));

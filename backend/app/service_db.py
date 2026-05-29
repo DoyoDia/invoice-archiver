@@ -19,7 +19,7 @@ from .models import (
     InvoiceRecord,
     InvoiceStatus,
 )
-from .parser import parse_invoice
+from .parser import parse_invoices
 from .repository import InvoiceRepository
 
 
@@ -32,9 +32,12 @@ class InvoiceServiceDB:
     def ingest_files(self, files: List[UploadFile]) -> List[dict]:
         if not files:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files uploaded")
-        return [self._ingest_one(upload) for upload in files]
+        results: List[dict] = []
+        for upload in files:
+            results.extend(self._ingest_one(upload))
+        return results
 
-    def _ingest_one(self, upload: UploadFile) -> dict:
+    def _ingest_one(self, upload: UploadFile) -> List[dict]:
         contents = upload.file.read()
         if not contents:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
@@ -69,25 +72,35 @@ class InvoiceServiceDB:
             repo.set_stored_path(asset.id, str(stored_path))
 
             try:
-                parsed, raw_text = self._parse(stored_path)
-                record = self._build_record(repo, asset.id, parsed, raw_text)
-                repo.create_invoice(record)
-                return {"file_id": asset.id, "invoice_no": record.invoice_no, "status": record.status.value}
+                parsed = self._parse(stored_path)
+                if not parsed:
+                    raise ValueError("未识别到发票")
+                results: List[dict] = []
+                for inv in parsed:
+                    raw_text = inv.pop("_raw_text", "")
+                    record = self._build_record(repo, asset.id, inv, raw_text)
+                    repo.create_invoice(record)
+                    results.append(
+                        {"file_id": asset.id, "invoice_no": record.invoice_no, "status": record.status.value}
+                    )
+                return results
             except Exception as exc:
                 repo.mark_failed(asset.id, str(exc))
-                return {"file_id": asset.id, "invoice_no": None, "status": "failed", "error": str(exc)}
+                return [{"file_id": asset.id, "invoice_no": None, "status": "failed", "error": str(exc)}]
 
-    def _parse(self, pdf_path: Path) -> Tuple[dict, str]:
-        raw_text = self._extract_text(pdf_path)
-        parsed = parse_invoice(pdf_path)
-        if self._is_valid(parsed):
-            return parsed, raw_text
+    def _parse(self, pdf_path: Path) -> List[dict]:
+        """返回该 PDF 中的发票列表（合并发票拆分、多页合并）。"""
+        parsed = parse_invoices(pdf_path)
+        if any(self._is_valid(p) for p in parsed):
+            return parsed
+        # 正则未识别出有效发票时，尝试 LLM 兜底（仅按单张处理）
         if self.llm is not None:
+            raw_text = self._extract_text(pdf_path)
             llm_parsed = self.llm.parse(raw_text)
             if llm_parsed and self._is_valid(llm_parsed):
-                return llm_parsed, raw_text
-        # 解析不充分也保留，交由校验标记 error
-        return parsed, raw_text
+                llm_parsed["_raw_text"] = raw_text
+                return [llm_parsed]
+        return parsed
 
     @staticmethod
     def _is_valid(data: dict) -> bool:
