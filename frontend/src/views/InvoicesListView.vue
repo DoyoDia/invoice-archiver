@@ -28,6 +28,9 @@
             <a-button type="primary" @click="onSearch" :loading="invoiceStore.loading">查询</a-button>
             <a-button @click="onReset" :disabled="invoiceStore.loading">重置</a-button>
             <a-button @click="onExport" :loading="exporting">导出 CSV</a-button>
+            <a-tooltip title="发票号前加单引号，避免老版本 Excel 转成科学计数法">
+              <a-button @click="onExportQuoted" :loading="exportingQuoted">导出'csv'</a-button>
+            </a-tooltip>
           </a-space>
         </a-form-item>
       </a-form>
@@ -72,6 +75,7 @@ const invoiceStore = useInvoiceStore();
 const filters = reactive<InvoiceFilter>({ invoice_no: "", status: undefined });
 const dateRange = ref<[Dayjs, Dayjs] | null>(null);
 const exporting = ref(false);
+const exportingQuoted = ref(false);
 
 const counts = ref<InvoiceCounts>({ total: 0, ok: 0, warn: 0, error: 0, duplicate: 0 });
 const summaryCards: Array<{ key: keyof InvoiceCounts; label: string; color: string }> = [
@@ -144,22 +148,25 @@ const onTableChange = (pagination: { current: number; pageSize: number }) => {
   invoiceStore.loadInvoices({ page: pagination.current, page_size: pagination.pageSize });
 };
 
-const onExport = async () => {
-  exporting.value = true;
+const downloadCsv = async (loadingRef: typeof exporting, quoteNo: boolean, filename: string) => {
+  loadingRef.value = true;
   try {
-    const { data } = await exportInvoices(buildFilters());
+    const { data } = await exportInvoices(buildFilters(), quoteNo);
     const url = window.URL.createObjectURL(new Blob([data], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = "invoices.csv";
+    link.download = filename;
     link.click();
     window.URL.revokeObjectURL(url);
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   } finally {
-    exporting.value = false;
+    loadingRef.value = false;
   }
 };
+
+const onExport = () => downloadCsv(exporting, false, "invoices.csv");
+const onExportQuoted = () => downloadCsv(exportingQuoted, true, "invoices_quoted.csv");
 
 onMounted(() => {
   invoiceStore.loadInvoices({});

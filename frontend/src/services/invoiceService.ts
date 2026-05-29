@@ -40,8 +40,11 @@ export const uploadInvoices = async (files: File[]): Promise<IngestResult[]> => 
   return data.results;
 };
 
-export const exportInvoices = (params: ExportParams) => {
-  return http.get<Blob>("/export.csv", { params, responseType: "blob" });
+export const exportInvoices = (params: ExportParams, quoteNo = false) => {
+  return http.get<Blob>("/export.csv", {
+    params: quoteNo ? { ...params, quote_no: true } : params,
+    responseType: "blob",
+  });
 };
 
 export const downloadSourceFile = (fileId: number) => {
