@@ -4,3 +4,4 @@
 data/
 frontend/dist/
 frontend/package-lock.json
+frontend/pnpm-workspace.yaml
