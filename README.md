@@ -68,8 +68,9 @@ docker run -d \
 | `ALLOWED_TAX_RATES` | `0,1,3,6,9,13` | 允许的税率（%），超出则标记为 `warn` |
 | `AMOUNT_TOLERANCE` | `0.01` | 金额校验容差 |
 | `TZ` | `Asia/Shanghai` | 时区 |
-| `LLM_BASE_URL` | （空） | **留空则不启用 LLM**；填入本地 Ollama 地址即开启兜底 |
-| `LLM_MODEL` | `qwen3:14b` | LLM 兜底使用的模型名 |
+| `LLM_API_KEY` | （空） | **留空则不启用 LLM**；填入即开启 OpenAI 兼容兜底 |
+| `LLM_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI 兼容接口的 base（会自动拼接 `/chat/completions`） |
+| `LLM_MODEL` | `deepseek-v4-flash` | LLM 兜底使用的模型名 |
 | `LLM_REQUEST_TIMEOUT` | `30` | LLM 请求超时（秒） |
 
 ### 关于 SQLite 路径的两种写法
@@ -78,19 +79,23 @@ docker run -d \
 
 ### 可选：开启 LLM 兜底
 默认走纯正则坐标解析，已能覆盖标准电子发票。若遇到非标准版式想加一层兜底，
-在宿主机跑一个 Ollama，然后配置：
+接口走 **OpenAI 兼容格式**（预设 DeepSeek），只需填入 API Key：
 
 ```yaml
 environment:
-  LLM_BASE_URL: "http://host.docker.internal:11434"
-  LLM_MODEL: "qwen3:14b"
+  LLM_API_KEY: "sk-xxxxxxxx"              # 填入即启用
+  LLM_BASE_URL: "https://api.deepseek.com/v1"
+  LLM_MODEL: "deepseek-v4-flash"
 ```
 
-> 容器访问宿主机服务需要 `host.docker.internal`，在 compose 里加：
-> ```yaml
-> extra_hosts:
->   - "host.docker.internal:host-gateway"
-> ```
+- 换成其他云服务商：把 `LLM_BASE_URL` 改成对应的 OpenAI 兼容 base、`LLM_MODEL` 改成对应模型即可。
+- 本地无鉴权的 OpenAI 兼容服务（如 vLLM、llama.cpp、Ollama 的 `/v1`）：
+  `LLM_BASE_URL` 指向本地地址，`LLM_API_KEY` 随便填一个非空值即可开启。
+  容器访问宿主机服务需要 `host.docker.internal`，在 compose 里加：
+  ```yaml
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  ```
 
 ---
 

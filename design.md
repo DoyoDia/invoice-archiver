@@ -17,7 +17,7 @@
    - 购买方/销售方：以 x≈300 为界分左右半区
    - 税号：版面中部、社会信用代码区域，按左右归属
    - 明细行：按列中心 x 坐标把每个单元格归到「单位/数量/单价/金额/税率/税额」
-2. **可选 LLM 兜底**：仅当配置了 `LLM_BASE_URL`（本地 Ollama）时启用。
+2. **可选 LLM 兜底**：OpenAI 兼容接口（预设 DeepSeek），仅当配置了 `LLM_API_KEY` 时启用。
    主路径解析不充分时，把 PDF 纯文本交给模型抽取 JSON，超时 30s。默认关闭。
 
 解析模块见 `backend/app/parser.py`，对 `test/` 下 14 张真实发票均可正确提取。
@@ -47,8 +47,9 @@ PDF 落盘到 `${STORAGE_ROOT}/invoices/{file_id}_{原名}`；SQLite 在 `${STOR
 | MAX_FILE_MB | 50 | 单文件大小上限 |
 | MAX_PAGES | 50 | 单文件页数上限 |
 | ALLOWED_TAX_RATES | 0,1,3,6,9,13 | 允许的税率（%） |
-| LLM_BASE_URL | （空） | 填入则启用 LLM 兜底 |
-| LLM_MODEL | qwen3:14b | Ollama 模型名 |
+| LLM_API_KEY | （空） | 填入则启用 LLM 兜底 |
+| LLM_BASE_URL | https://api.deepseek.com/v1 | OpenAI 兼容接口 base |
+| LLM_MODEL | deepseek-v4-flash | 模型名 |
 | LLM_REQUEST_TIMEOUT | 30 | LLM 超时秒数 |
 
 ## 运行
