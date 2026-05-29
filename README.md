@@ -54,6 +54,42 @@ docker run -d \
 
 ---
 
+## 二·五、中国大陆构建加速
+
+如果构建时报 `failed to resolve ... docker/dockerfile` 或拉取 `node`/`python`
+基础镜像超时，是访问 Docker Hub 不稳定所致。本项目已做了两层处理：
+
+1. **pip / npm 已内置国内源**（清华 PyPI + npmmirror），依赖安装不走外网。
+2. **`Dockerfile` 去掉了 `# syntax` 指令**，不再拉取 dockerfile 前端镜像。
+
+剩下的就是 `node`/`python` 基础镜像。两种办法二选一：
+
+**办法 A（推荐）：给 Docker 守护进程配置镜像加速器**，一次配置、所有拉取都受益。
+编辑 `/etc/docker/daemon.json`：
+
+```json
+{
+  "registry-mirrors": ["https://docker.m.daocloud.io"]
+}
+```
+
+然后 `sudo systemctl restart docker`，再正常 `docker compose up --build -d`。
+
+**办法 B：构建时临时指定镜像源前缀**（不改全局配置）：
+
+```bash
+# compose
+REGISTRY=docker.m.daocloud.io/library/ docker compose up --build -d
+
+# 或手动 build
+docker build --build-arg REGISTRY=docker.m.daocloud.io/library/ -t invoice-archiver .
+```
+
+> 镜像加速器地址会变动，daocloud / 阿里云 / 中科大等都可用，挑一个能连通的即可。
+> 也可用 `--build-arg PIP_INDEX_URL=...` / `--build-arg NPM_REGISTRY=...` 换其他源。
+
+---
+
 ## 三、配置（环境变量）
 
 所有配置都通过环境变量传入，在 `docker-compose.yml` 的 `environment:` 下修改，
