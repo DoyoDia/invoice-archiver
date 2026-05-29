@@ -29,14 +29,16 @@ class Settings:
         default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///./data/invoices.db")
     )
 
-    # LLM 兜底（默认关闭）：仅当 LLM_BASE_URL 非空时启用。
-    llm_base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", ""))
-    llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "qwen3:14b"))
+    # LLM 兜底（OpenAI 兼容接口，默认关闭）：仅当填入 LLM_API_KEY 时启用。
+    # 预设 DeepSeek；本地无鉴权的 OpenAI 兼容服务可填任意非空 key 以开启。
+    llm_base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1"))
+    llm_api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", ""))
+    llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "deepseek-v4-flash"))
     llm_request_timeout: int = field(default_factory=lambda: int(os.getenv("LLM_REQUEST_TIMEOUT", "30")))
 
     @property
     def llm_enabled(self) -> bool:
-        return bool(self.llm_base_url.strip())
+        return bool(self.llm_api_key.strip())
 
 
 def load_settings() -> Settings:

@@ -7,9 +7,11 @@ services:
       TZ: Asia/Shanghai
       DATABASE_URL: sqlite:////data/invoices.db
       STORAGE_ROOT: /data
-      # 可选 LLM 兜底：填入本地 Ollama 地址即启用，留空则纯正则解析。
-      LLM_BASE_URL: ""
-      # LLM_MODEL: qwen3:14b
+      # 可选 LLM 兜底（OpenAI 兼容接口，预设 DeepSeek）：
+      # 填入 LLM_API_KEY 即启用，留空则纯正则解析。
+      LLM_API_KEY: ""
+      LLM_BASE_URL: "https://api.deepseek.com/v1"
+      LLM_MODEL: "deepseek-v4-flash"
     volumes:
       - ./data:/data
     ports:
