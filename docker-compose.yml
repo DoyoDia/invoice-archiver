@@ -2,6 +2,10 @@ services:
   app:
     build:
       context: .
+      args:
+        # 大陆加速：设置环境变量 REGISTRY 后再 build，例如
+        #   REGISTRY=docker.m.daocloud.io/library/ docker compose up --build
+        REGISTRY: ${REGISTRY:-}
     container_name: invoice_archiver
     environment:
       TZ: Asia/Shanghai
