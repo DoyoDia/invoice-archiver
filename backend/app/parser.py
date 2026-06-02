@@ -37,30 +37,50 @@ def _same_line(a: float, b: float) -> bool:
 
 
 def _derive_columns(words: List[Word]) -> Tuple[Dict[str, float], float]:
-    """从表头行推导各列中心 x（不同发票模板列数与位置不同，如客运发票无规格/单位）。
+    """从表头行推导各列中心 x（不同模板列数/顺序/列距不同，如客运发票无规格/单位）。
 
-    表头里“单 位”“数 量”等会被拆成单字，按相邻间距合并还原为整列标签。
+    表头里“单 位”“数 量”常被拆成单字；列间距有时与单字间距相近（按间距合并会误并），
+    故改为从左到右累积字符、与已知列名精确匹配来还原整列，匹配即归位并重置。
     """
     hy = next((y0 for x0, y0, x1, y1, t in words if t == "项目名称"), None)
     if hy is None:
         return dict(_DEFAULT_COLS), 150.0
 
     row = sorted(((x0, x1, t) for x0, y0, x1, y1, t in words if _same_line(y0, hy)), key=lambda w: w[0])
-    groups: List[List] = []
-    for x0, x1, t in row:
-        if groups and x0 - groups[-1][1] < 12:  # 相邻单字 → 同一列标签
-            groups[-1][1], groups[-1][2] = x1, groups[-1][2] + t
-        else:
-            groups.append([x0, x1, t])
-
     cols: Dict[str, float] = {}
-    for x0, x1, label in groups:
-        center = (x0 + x1) / 2
-        if "税率" in label or "征收率" in label:
-            cols["税率"] = center
-        elif label in _HEADER_LABELS:
-            cols[label] = center
+    acc_text = ""
+    acc: List[Tuple[float, float]] = []
+    for x0, x1, t in row:
+        acc.append((x0, x1))
+        acc_text += t
+        label = acc_text if acc_text in _HEADER_LABELS else ("税率" if ("税率" in acc_text or "征收率" in acc_text) else None)
+        if label:
+            cols[label] = (acc[0][0] + acc[-1][1]) / 2
+            acc_text, acc = "", []
+        elif len(acc_text) > 8:  # 异常累积，丢弃重来
+            acc_text, acc = "", []
     return cols, hy
+
+
+_NAME_BAND = (86.0, 112.0)  # 块平移到模板坐标系后，购销方名称所在的 y 区间
+_NAME_EXCLUDE = ("名称", "统一", "社会", "信用", "代码", "识别", "纳税", "购买", "销售", "信息", "开票")
+
+
+def _party_names(words: List[Word]) -> Tuple[Optional[str], Optional[str]]:
+    """按位置提取购买方/销售方名称（标签“名称:”可能被拆成单字，故不依赖标签）。"""
+    cands = []
+    for x0, y0, x1, y1, t in words:
+        if not (_NAME_BAND[0] <= y0 <= _NAME_BAND[1]):
+            continue
+        if len(t) < 3 or not any("一" <= c <= "鿿" for c in t):
+            continue
+        if _TAXID_RE.match(t) or any(k in t for k in _NAME_EXCLUDE):
+            continue
+        cands.append((x0, t))
+    cands.sort()
+    buyer = next((t for x0, t in cands if x0 < _HALF_X), None)
+    seller = next((t for x0, t in cands if x0 >= _HALF_X), None)
+    return buyer, seller
 
 
 def parse_invoices(pdf_path: Path) -> List[dict]:
@@ -123,12 +143,13 @@ def _segment_blocks(pages: List[List[Word]]) -> List[List[Word]]:
 
 def _parse_block(words: List[Word]) -> dict:
     invoice_no = _value_right_of(words, "发票号码")
+    buyer_name, seller_name = _party_names(words)
     inv = {
         "发票类型": "电子发票（普通发票）",
         "发票号码": invoice_no,
         "开票日期": _value_right_of(words, "开票日期"),
-        "购买方信息": {"名称": _value_right_of(words, "名称", half="left"), "纳税人识别号": None},
-        "销售方信息": {"名称": _value_right_of(words, "名称", half="right"), "纳税人识别号": None},
+        "购买方信息": {"名称": buyer_name or _value_right_of(words, "名称", half="left"), "纳税人识别号": None},
+        "销售方信息": {"名称": seller_name or _value_right_of(words, "名称", half="right"), "纳税人识别号": None},
         "备注": "",
         "开票人": _value_right_of(words, "开票人"),
     }
