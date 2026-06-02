@@ -112,7 +112,7 @@
 **GET /api/export.csv** — 同列表的筛选参数（`invoice_no` / `status` / `date_start` / `date_end` / `tag`），外加：
 - `quote_no=true`：发票号前加单引号，避免老版本 Excel 转科学计数法，文件名为 `invoices_quoted.csv`
 
-**已标记删除的发票不会被导出。** 返回 `text/csv; charset=utf-8`（含 UTF-8 BOM）。
+**已标记删除的发票不会被导出。** 同一发票号只导出最新上传的一条（自动去重，重新导入的修正版本胜出，避免旧异常/重复记录污染导出）。返回 `text/csv; charset=utf-8`（含 UTF-8 BOM）。
 
 ## 7. 下载原文件
 **GET /api/files/{file_id}** — 返回 `application/pdf` 附件；不存在返回 404。

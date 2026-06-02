@@ -236,13 +236,23 @@ def build_app() -> FastAPI:
             filters=_filters(invoice_no, status_filter, date_start, date_end, tag),
             include_deleted=False,
         )
+        # 同号去重：records 已按上传时间倒序，保留每个发票号最新的一条
+        # （重新导入修正过的版本胜出，避免旧异常/重复记录污染导出）
+        seen: set = set()
+        deduped = []
+        for r in records:
+            if r.invoice_no and r.invoice_no in seen:
+                continue
+            if r.invoice_no:
+                seen.add(r.invoice_no)
+            deduped.append(r)
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
             "invoice_no", "invoice_date", "buyer_name", "seller_name",
             "total_amount", "total_tax", "grand_total", "status",
         ])
-        for r in records:
+        for r in deduped:
             # quote_no=True 时在发票号前加单引号，避免老版本 Excel 转成科学计数法
             invoice_cell = f"'{r.invoice_no}" if quote_no else r.invoice_no
             writer.writerow([
