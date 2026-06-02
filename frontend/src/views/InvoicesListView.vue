@@ -117,7 +117,7 @@
       </a-space>
       <div v-if="allTags.length" class="tag-manage">
         <div v-for="t in allTags" :key="t.id" class="tag-manage-row">
-          <a-tag color="blue">{{ t.name }}</a-tag>
+          <a-typography-text :content="t.name" :editable="{ onChange: (v: string) => onRenameTag(t, v), tooltip: '点击编辑名称' }" />
           <a-popconfirm
             title="确认删除该标签？将从所有发票上移除"
             ok-text="删除"
@@ -144,6 +144,7 @@ import {
   exportInvoices,
   fetchSummary,
   fetchTags,
+  renameTag,
   setInvoiceDeleted,
   setInvoiceTags
 } from "../services/invoiceService";
@@ -191,6 +192,22 @@ const addTag = async () => {
     newTagName.value = "";
     await loadTags();
     message.success(`已添加标签「${name}」`);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+};
+
+const onRenameTag = async (tag: Tag, value: string) => {
+  const name = value.trim();
+  // editable 在回车与失焦都会触发 onChange，用最新名称比对避免重复提交
+  const current = allTags.value.find((t) => t.id === tag.id)?.name ?? tag.name;
+  if (!name || name === current) return;
+  try {
+    await renameTag(tag.id, name);
+    message.success(`已重命名「${tag.name}」→「${name}」`);
+    if (filters.tag === tag.name) filters.tag = name;
+    await loadTags();
+    invoiceStore.loadInvoices({});
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   }

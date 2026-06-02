@@ -217,6 +217,11 @@ class InvoiceServiceDB:
         with self.session_factory() as session:
             return InvoiceRepository(session).delete_tag(tag_id)
 
+    def rename_tag(self, tag_id: int, name: str) -> Optional[dict]:
+        with self.session_factory() as session:
+            result = InvoiceRepository(session).rename_tag(tag_id, name)
+            return {"id": result[0], "name": result[1]} if result else None
+
     def set_invoice_tags(self, invoice_no: str, names: List[str]) -> Optional[InvoiceRecord]:
         with self.session_factory() as session:
             return InvoiceRepository(session).set_invoice_tags(invoice_no, names)

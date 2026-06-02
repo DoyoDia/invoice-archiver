@@ -54,6 +54,11 @@ export const createTag = async (name: string): Promise<Tag> => {
 
 export const deleteTag = (id: number) => http.delete(`/tags/${id}`);
 
+export const renameTag = async (id: number, name: string): Promise<Tag> => {
+  const { data } = await http.put<Tag>(`/tags/${id}`, { name });
+  return data;
+};
+
 export const setInvoiceTags = (invoiceNo: string, tags: string[]) =>
   http.put(`/invoices/${invoiceNo}/tags`, { tags });
 

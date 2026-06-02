@@ -16,6 +16,7 @@
 | POST | /api/invoices/{invoice_no}/deleted | 标记/取消删除 |
 | GET | /api/tags | 列出/搜索标签 |
 | POST | /api/tags | 创建标签 |
+| PUT | /api/tags/{tag_id} | 重命名标签（全局生效） |
 | DELETE | /api/tags/{tag_id} | 删除标签（全局，从所有发票移除） |
 | GET | /api/export.csv | 导出当前筛选结果（排除已删除） |
 | GET | /api/files/{file_id} | 下载原始 PDF |
@@ -102,6 +103,8 @@
 **GET /api/tags?q=** — 列出标签（`q` 模糊搜索）→ `[{"id": 1, "name": "打车"}]`
 
 **POST /api/tags** — body `{"name": "打车"}` 创建（已存在则返回原标签）→ `{"id": 1, "name": "打车"}`
+
+**PUT /api/tags/{tag_id}** — body `{"name": "网约车"}` 重命名（全局生效，所有发票上的该标签同步更新）→ `{"id": 1, "name": "网约车"}`；新名为空或与其它标签重名返回 400。
 
 **DELETE /api/tags/{tag_id}** — 全局删除标签，并从所有发票上移除关联 → `{"ok": true}`
 
