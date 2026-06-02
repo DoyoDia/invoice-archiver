@@ -94,6 +94,7 @@ class InvoiceRepository:
             source_file_id=invoice.source_file_id,
             raw_text=invoice.raw_text,
             raw_json=invoice.raw_json,
+            created_at=invoice.created_at,
             line_items=[_line_item_db(item) for item in invoice.line_items],
             tags=self._get_or_create_tags(invoice.tags),
         )
@@ -123,6 +124,7 @@ class InvoiceRepository:
         db.deleted = False
         db.source_file_id = invoice.source_file_id
         db.raw_text, db.raw_json = invoice.raw_text, invoice.raw_json
+        db.created_at = invoice.created_at  # 重新上传：刷新上传时间
         db.line_items = [_line_item_db(item) for item in invoice.line_items]
         if invoice.tags:
             existing = {t.name for t in db.tags}
@@ -212,7 +214,8 @@ class InvoiceRepository:
         if filters.get("invoice_no"):
             stmt = stmt.where(InvoiceDB.invoice_no.contains(filters["invoice_no"]))
         if filters.get("status"):
-            stmt = stmt.where(InvoiceDB.status == filters["status"])
+            statuses = [s for s in filters["status"].split(",") if s]
+            stmt = stmt.where(InvoiceDB.status.in_(statuses) if len(statuses) > 1 else InvoiceDB.status == statuses[0])
         if filters.get("tag"):
             stmt = stmt.where(InvoiceDB.tags.any(TagDB.name == filters["tag"]))
         if filters.get("date_start"):

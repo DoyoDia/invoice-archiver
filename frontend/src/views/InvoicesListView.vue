@@ -73,6 +73,9 @@
             <a-tag v-for="tag in record.tags" :key="tag" color="blue">{{ tag }}</a-tag>
             <span v-if="!record.tags.length" class="muted">—</span>
           </template>
+          <template v-else-if="column.key === 'uploaded_at'">
+            {{ formatTime(record.uploaded_at) }}
+          </template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" size="small" @click="openTagEdit(record)">编辑标签</a-button>
             <a-button type="link" size="small" @click="onToggleDeleted(record)">
@@ -132,7 +135,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import type { Dayjs } from "dayjs";
+import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { useInvoiceStore } from "../stores/invoiceStore";
 import {
@@ -247,11 +250,12 @@ const summaryCards: Array<{ key: keyof InvoiceCounts; label: string; color: stri
   { key: "duplicate", label: "重复", color: "#8c8c8c" }
 ];
 
-const statusOptions: Array<{ label: string; value: InvoiceStatus }> = [
+const statusOptions: Array<{ label: string; value: string }> = [
   { label: "正常", value: "ok" },
   { label: "警告", value: "warn" },
   { label: "异常", value: "error" },
-  { label: "重复", value: "duplicate" }
+  { label: "重复", value: "duplicate" },
+  { label: "正常&重复", value: "ok,duplicate" }
 ];
 const statusLabelMap: Record<string, string> = { ok: "正常", warn: "警告", error: "异常", duplicate: "重复" };
 const statusColorMap: Record<string, string> = { ok: "success", warn: "warning", error: "error", duplicate: "default" };
@@ -266,8 +270,11 @@ const columns = [
   { title: "价税合计", dataIndex: "grand_total", key: "grand_total" },
   { title: "标签", dataIndex: "tags", key: "tags" },
   { title: "状态", dataIndex: "status", key: "status" },
+  { title: "上传时间", dataIndex: "uploaded_at", key: "uploaded_at" },
   { title: "操作", key: "action" }
 ];
+
+const formatTime = (value: string | null) => (value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "");
 
 const paginationConfig = computed(() => ({
   current: invoiceStore.pageData.page,
