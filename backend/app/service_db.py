@@ -181,6 +181,7 @@ class InvoiceServiceDB:
             raw_json=parsed,
             line_items=line_items,
             tags=list(tags),
+            created_at=datetime.now(),  # 上传时间（本地时区，容器由 TZ 环境变量决定）
         )
 
     def list_invoices(

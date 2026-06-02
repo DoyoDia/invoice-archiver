@@ -16,6 +16,7 @@
                 <a-descriptions-item label="发票号">{{ detail.invoice.invoice_no }}</a-descriptions-item>
                 <a-descriptions-item label="类型">{{ detail.invoice.invoice_type }}</a-descriptions-item>
                 <a-descriptions-item label="开票日期">{{ detail.invoice.invoice_date }}</a-descriptions-item>
+                <a-descriptions-item label="上传时间">{{ formatTime(detail.invoice.created_at) }}</a-descriptions-item>
                 <a-descriptions-item label="状态">
                   <a-tag v-if="detail.invoice.deleted" color="default">删除</a-tag>
                   <a-tag v-else :color="statusColorMap[detail.invoice.status]">
@@ -104,6 +105,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import dayjs from "dayjs";
 import { useRoute } from "vue-router";
 import { message } from "ant-design-vue";
 import {
@@ -194,6 +196,8 @@ const onToggleDeleted = async () => {
     togglingDeleted.value = false;
   }
 };
+
+const formatTime = (value: string | null) => (value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "");
 
 const formattedJson = computed(() =>
   detail.value?.raw_json ? JSON.stringify(detail.value.raw_json, null, 2) : "暂无数据"

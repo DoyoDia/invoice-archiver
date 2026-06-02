@@ -52,7 +52,7 @@ export interface InvoiceFilter {
   page?: number;
   page_size?: number;
   invoice_no?: string;
-  status?: InvoiceStatus;
+  status?: string; // 单个状态，或逗号分隔（如 "ok,duplicate" = 正常&重复）
   date_start?: string;
   date_end?: string;
   tag?: string;
