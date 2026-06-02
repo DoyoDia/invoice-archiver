@@ -149,6 +149,18 @@ def build_app() -> FastAPI:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
         return {"ok": True}
 
+    @router.put("/tags/{tag_id}", response_model=TagItem)
+    def rename_tag(
+        tag_id: int, body: CreateTagRequest, service: InvoiceServiceDB = Depends(get_service)
+    ) -> TagItem:
+        try:
+            result = service.rename_tag(tag_id, body.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        if not result:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
+        return TagItem(**result)
+
     @router.put("/invoices/{invoice_no}/tags")
     def set_invoice_tags(
         invoice_no: str, body: SetTagsRequest, service: InvoiceServiceDB = Depends(get_service)

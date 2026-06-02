@@ -175,6 +175,23 @@ class InvoiceRepository:
         self.session.delete(tag)  # 关联表 invoice_tags 由级联清理
         return True
 
+    def rename_tag(self, tag_id: int, new_name: str) -> Optional[Tuple[int, str]]:
+        """重命名标签；新名为空或与其它标签重名时抛 ValueError，标签不存在返回 None。"""
+        name = new_name.strip()
+        if not name:
+            raise ValueError("标签名不能为空")
+        tag = self.session.get(TagDB, tag_id)
+        if tag is None:
+            return None
+        clash = self.session.execute(
+            select(TagDB).where(TagDB.name == name, TagDB.id != tag_id)
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise ValueError("标签名已存在")
+        tag.name = name
+        self.session.flush()
+        return tag.id, tag.name
+
     def set_invoice_tags(self, invoice_no: str, names: List[str]) -> Optional[InvoiceRecord]:
         db = self._latest_db(invoice_no, with_tags=True)
         if db is None:
