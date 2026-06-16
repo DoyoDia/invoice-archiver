@@ -140,6 +140,25 @@ class InvoiceRepository:
         )
         return self.session.execute(stmt).scalar_one()
 
+    def active_exists_with_any_tag(self, invoice_no: str, names: List[str]) -> bool:
+        if not names:
+            return False
+        stmt = (
+            select(func.count())
+            .select_from(InvoiceDB)
+            .where(
+                InvoiceDB.invoice_no == invoice_no,
+                InvoiceDB.deleted.is_(False),
+                InvoiceDB.tags.any(TagDB.name.in_(names)),
+            )
+        )
+        return self.session.execute(stmt).scalar_one() > 0
+
+    def delete_file_asset(self, file_id: int) -> None:
+        asset = self.session.get(FileAssetDB, file_id)
+        if asset is not None:
+            self.session.delete(asset)
+
     # --- 标签 ---
 
     def _get_or_create_tags(self, names: List[str]) -> List[TagDB]:
