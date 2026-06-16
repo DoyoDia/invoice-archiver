@@ -17,6 +17,21 @@ from fastapi import APIRouter, Body, Depends, FastAPI, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+
+class SPAStaticFiles(StaticFiles):
+    """前端为单页应用：对路由型路径（无扩展名、非 /api）的 404 回退到 index.html，
+    使刷新 /upload、/invoices/{no} 等子路由不再 404；静态资源与 API 的 404 照常。"""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            last = path.rsplit("/", 1)[-1]
+            if exc.status_code == 404 and not path.startswith("api") and "." not in last:
+                return await super().get_response("index.html", scope)
+            raise
 
 from backend.app.config import load_settings
 from backend.app.db_session import DatabaseManager
@@ -295,7 +310,7 @@ def build_app() -> FastAPI:
 
     frontend_dist = os.getenv("FRONTEND_DIST", str(base_dir.parent / "frontend" / "dist"))
     if Path(frontend_dist).is_dir():
-        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+        app.mount("/", SPAStaticFiles(directory=frontend_dist, html=True), name="frontend")
 
     @app.on_event("shutdown")
     def shutdown_event() -> None:
