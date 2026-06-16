@@ -26,6 +26,10 @@
 **POST /api/invoices** — `multipart/form-data`：
 - `file`：必填，可重复；单文件 ≤50MB、页数 ≤50
 - `tags`：可选，可重复；本批所有发票统一打上这些标签（不存在的标签自动创建）
+- `skip_dup`：可选 bool；为 true 时跳过发票号已在库（未删除）的发票，不入库
+- `skip_dup_in_tag`：可选 bool；为 true 时仅在本次所选标签范围内判重——同号发票若已带该标签则跳过（允许同一发票归入不同标签）
+
+被跳过的发票在 `results` 中 `status` 为 `skipped`。
 
 ```json
 {
@@ -34,7 +38,7 @@
   ]
 }
 ```
-- `status` 取值：`ok` / `warn` / `error` / `duplicate` / `failed`
+- `status` 取值：`ok` / `warn` / `error` / `duplicate` / `failed` / `skipped`（按开关跳过的重复）
 - `revived`：为 `true` 表示命中了同号的「已删除」记录并将其恢复更新（不新建重复记录）
 
 ## 2. 发票列表

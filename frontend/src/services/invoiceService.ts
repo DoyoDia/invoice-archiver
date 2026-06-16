@@ -34,10 +34,21 @@ export const fetchSummary = async (): Promise<InvoiceCounts> => {
   };
 };
 
-export const uploadInvoices = async (files: File[], tags: string[] = []): Promise<IngestResult[]> => {
+export interface UploadOptions {
+  skipDup?: boolean;
+  skipDupInTag?: boolean;
+}
+
+export const uploadInvoices = async (
+  files: File[],
+  tags: string[] = [],
+  options: UploadOptions = {}
+): Promise<IngestResult[]> => {
   const formData = new FormData();
   files.forEach((file) => formData.append("file", file, file.name));
   tags.forEach((t) => formData.append("tags", t));
+  formData.append("skip_dup", String(!!options.skipDup));
+  formData.append("skip_dup_in_tag", String(!!options.skipDupInTag));
   const { data } = await http.post<{ results: IngestResult[] }>("/invoices", formData);
   return data.results;
 };

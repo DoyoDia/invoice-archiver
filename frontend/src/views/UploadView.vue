@@ -26,6 +26,20 @@
         />
       </div>
 
+      <div class="switch-row">
+        <a-switch v-model:checked="skipDup" :disabled="uploading" />
+        <span>不提交重复的发票</span>
+        <a-tooltip title="发票号已在库中（未删除）的将被跳过，不再入库">
+          <question-circle-outlined class="hint-icon" />
+        </a-tooltip>
+        <a-divider type="vertical" />
+        <a-switch v-model:checked="skipDupInTag" :disabled="uploading" />
+        <span>不提交重复的发票至标签</span>
+        <a-tooltip title="仅在本次所选标签范围内判重：同号发票若已带有该标签则跳过（允许同一发票归入不同标签）。需先选标签">
+          <question-circle-outlined class="hint-icon" />
+        </a-tooltip>
+      </div>
+
       <a-space class="actions">
         <a-button type="primary" @click="submitUpload" :loading="uploading" :disabled="fileList.length === 0">
           上传并解析
@@ -59,7 +73,7 @@
 import { onMounted, ref } from "vue";
 import type { UploadProps } from "ant-design-vue";
 import { message } from "ant-design-vue";
-import { InboxOutlined } from "@ant-design/icons-vue";
+import { InboxOutlined, QuestionCircleOutlined } from "@ant-design/icons-vue";
 import type { UploadFile } from "ant-design-vue/es/upload/interface";
 import { fetchTags, uploadInvoices } from "../services/invoiceService";
 import type { IngestResult } from "../types/invoice";
@@ -71,6 +85,8 @@ const uploading = ref(false);
 const results = ref<ResultRow[]>([]);
 const selectedTags = ref<string[]>([]);
 const tagOptions = ref<{ value: string; label: string }[]>([]);
+const skipDup = ref(false);
+const skipDupInTag = ref(false);
 let keySeq = 0;
 
 onMounted(async () => {
@@ -114,9 +130,9 @@ const clearFiles = () => {
 };
 
 const statusColor = (status: string) =>
-  ({ ok: "success", warn: "warning", error: "error", duplicate: "default", failed: "volcano" }[status] ?? "default");
+  ({ ok: "success", warn: "warning", error: "error", duplicate: "default", failed: "volcano", skipped: "default" }[status] ?? "default");
 const statusLabel = (status: string) =>
-  ({ ok: "正常", warn: "警告", error: "异常", duplicate: "重复", failed: "失败" }[status] ?? status);
+  ({ ok: "正常", warn: "警告", error: "异常", duplicate: "重复", failed: "失败", skipped: "已跳过(重复)" }[status] ?? status);
 
 const resultColumns = [
   { title: "文件 ID", dataIndex: "file_id", key: "file_id" },
@@ -135,10 +151,18 @@ const submitUpload = async () => {
     const files = fileList.value
       .map((item) => item.originFileObj as File)
       .filter((file): file is File => file instanceof File);
-    const result = await uploadInvoices(files, selectedTags.value);
+    const result = await uploadInvoices(files, selectedTags.value, {
+      skipDup: skipDup.value,
+      skipDupInTag: skipDupInTag.value
+    });
     const stamped = result.map((r) => ({ ...r, _key: `r${keySeq++}` }));
     results.value = [...stamped, ...results.value];
-    message.success(`已处理 ${files.length} 个文件，共 ${result.length} 张发票`);
+    const skipped = result.filter((r) => r.status === "skipped").length;
+    const imported = result.length - skipped;
+    message.success(`已处理 ${files.length} 个文件，入库 ${imported} 张发票`);
+    if (skipped > 0) {
+      message.info(`已去掉 ${skipped} 张重复发票`);
+    }
     clearFiles();
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
@@ -166,6 +190,18 @@ const submitUpload = async () => {
 
 .tag-label {
   white-space: nowrap;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.hint-icon {
+  color: #8c8c8c;
 }
 
 .actions {

@@ -29,16 +29,31 @@ class InvoiceServiceDB:
         self.session_factory = session_factory
         self.llm: Optional[LLMService] = LLMService(settings) if settings.llm_enabled else None
 
-    def ingest_files(self, files: List[UploadFile], tags: Optional[List[str]] = None) -> List[dict]:
+    def ingest_files(
+        self,
+        files: List[UploadFile],
+        tags: Optional[List[str]] = None,
+        skip_dup: bool = False,
+        skip_dup_in_tag: bool = False,
+    ) -> List[dict]:
         if not files:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files uploaded")
         tags = [t.strip() for t in (tags or []) if t.strip()]
         results: List[dict] = []
         for upload in files:
-            results.extend(self._ingest_one(upload, tags))
+            results.extend(self._ingest_one(upload, tags, skip_dup, skip_dup_in_tag))
         return results
 
-    def _ingest_one(self, upload: UploadFile, tags: List[str]) -> List[dict]:
+    def _should_skip(self, repo: InvoiceRepository, invoice_no: str, tags: List[str], skip_dup: bool, skip_dup_in_tag: bool) -> bool:
+        if not invoice_no:
+            return False
+        if skip_dup and repo.count_active_by_invoice_no(invoice_no) > 0:
+            return True
+        if skip_dup_in_tag and repo.active_exists_with_any_tag(invoice_no, tags):
+            return True
+        return False
+
+    def _ingest_one(self, upload: UploadFile, tags: List[str], skip_dup: bool = False, skip_dup_in_tag: bool = False) -> List[dict]:
         contents = upload.file.read()
         if not contents:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
@@ -77,17 +92,30 @@ class InvoiceServiceDB:
                 if not parsed:
                     raise ValueError("未识别到发票")
                 results: List[dict] = []
+                created = 0
                 for inv in parsed:
                     raw_text = inv.pop("_raw_text", "")
                     record = self._build_record(repo, asset.id, inv, raw_text, tags)
+                    if self._should_skip(repo, record.invoice_no, tags, skip_dup, skip_dup_in_tag):
+                        results.append({
+                            "file_id": asset.id,
+                            "invoice_no": record.invoice_no,
+                            "status": "skipped",
+                            "revived": False,
+                        })
+                        continue
                     revived = repo.revive_if_deleted(record) if record.invoice_no else None
                     final = revived or repo.create_invoice(record)
+                    created += 1
                     results.append({
                         "file_id": asset.id,
                         "invoice_no": final.invoice_no,
                         "status": final.status.value,
                         "revived": revived is not None,
                     })
+                if created == 0:  # 整份文件都被跳过：删除孤立的文件记录与落盘文件
+                    repo.delete_file_asset(asset.id)
+                    stored_path.unlink(missing_ok=True)
                 return results
             except Exception as exc:
                 repo.mark_failed(asset.id, str(exc))

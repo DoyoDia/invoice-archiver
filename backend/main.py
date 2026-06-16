@@ -87,9 +87,11 @@ def build_app() -> FastAPI:
     def upload_invoices(
         files: List[UploadFile] = File(..., alias="file"),
         tags: List[str] = Form(default=[]),
+        skip_dup: bool = Form(False),
+        skip_dup_in_tag: bool = Form(False),
         service: InvoiceServiceDB = Depends(get_service),
     ) -> UploadResponse:
-        results = service.ingest_files(files, tags)
+        results = service.ingest_files(files, tags, skip_dup, skip_dup_in_tag)
         return UploadResponse(results=[IngestResultItem(**r) for r in results])
 
     @router.get("/invoices", response_model=InvoiceListResponse)
