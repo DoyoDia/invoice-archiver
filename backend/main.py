@@ -178,20 +178,20 @@ def build_app() -> FastAPI:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
         return TagItem(**result)
 
-    @router.put("/invoices/{invoice_no}/tags")
+    @router.put("/invoices/{invoice_id}/tags")
     def set_invoice_tags(
-        invoice_no: str, body: SetTagsRequest, service: InvoiceServiceDB = Depends(get_service)
+        invoice_id: int, body: SetTagsRequest, service: InvoiceServiceDB = Depends(get_service)
     ) -> Dict[str, object]:
-        record = service.set_invoice_tags(invoice_no, body.tags)
+        record = service.set_invoice_tags(invoice_id, body.tags)
         if not record:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
         return {"ok": True, "tags": record.tags}
 
-    @router.post("/invoices/{invoice_no}/deleted")
+    @router.post("/invoices/{invoice_id}/deleted")
     def set_invoice_deleted(
-        invoice_no: str, body: SetDeletedRequest, service: InvoiceServiceDB = Depends(get_service)
+        invoice_id: int, body: SetDeletedRequest, service: InvoiceServiceDB = Depends(get_service)
     ) -> Dict[str, object]:
-        record = service.set_deleted(invoice_no, body.deleted)
+        record = service.set_deleted(invoice_id, body.deleted)
         if not record:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
         return {"ok": True, "deleted": record.deleted}
@@ -205,6 +205,7 @@ def build_app() -> FastAPI:
         if not record:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
         invoice = InvoiceEntity(
+            invoice_id=record.id,
             invoice_no=record.invoice_no,
             invoice_type=record.invoice_type,
             invoice_date=record.invoice_date.isoformat() if record.invoice_date else None,

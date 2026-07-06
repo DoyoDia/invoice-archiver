@@ -172,6 +172,7 @@ const newTagName = ref("");
 
 // 编辑某发票标签弹窗
 const tagEditVisible = ref(false);
+const tagEditId = ref(0);
 const tagEditNo = ref("");
 const tagEditValues = ref<string[]>([]);
 const tagEditSaving = ref(false);
@@ -226,6 +227,7 @@ const onDeleteTag = async (tag: Tag) => {
 };
 
 const openTagEdit = (record: InvoiceSummaryRecord) => {
+  tagEditId.value = record.invoice_id;
   tagEditNo.value = record.invoice_no;
   tagEditValues.value = [...record.tags];
   tagEditVisible.value = true;
@@ -234,7 +236,7 @@ const openTagEdit = (record: InvoiceSummaryRecord) => {
 const saveTagEdit = async () => {
   tagEditSaving.value = true;
   try {
-    await setInvoiceTags(tagEditNo.value, tagEditValues.value);
+    await setInvoiceTags(tagEditId.value, tagEditValues.value);
     tagEditVisible.value = false;
     message.success("标签已更新");
     await loadTags();
@@ -250,7 +252,7 @@ const rowClassName = (record: InvoiceSummaryRecord) => (record.deleted ? "row-de
 
 const onToggleDeleted = async (record: InvoiceSummaryRecord) => {
   try {
-    await setInvoiceDeleted(record.invoice_no, !record.deleted);
+    await setInvoiceDeleted(record.invoice_id, !record.deleted);
     invoiceStore.loadInvoices({});
     refreshSummary();
   } catch (err) {

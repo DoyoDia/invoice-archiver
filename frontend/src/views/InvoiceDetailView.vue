@@ -173,7 +173,7 @@ const saveTags = async () => {
   const next = editTags.value;
   if (current.length === next.length && current.every((t) => next.includes(t))) return;
   try {
-    await setInvoiceTags(invoiceNo, next);
+    await setInvoiceTags(detail.value.invoice.invoice_id, next);
     detail.value.invoice.tags = [...next];
     message.success("标签已保存");
   } catch (err) {
@@ -187,7 +187,7 @@ const onToggleDeleted = async () => {
   togglingDeleted.value = true;
   try {
     const next = !detail.value.invoice.deleted;
-    await setInvoiceDeleted(invoiceNo, next);
+    await setInvoiceDeleted(detail.value.invoice.invoice_id, next);
     detail.value.invoice.deleted = next;
     message.success(next ? "已标记删除" : "已取消删除");
   } catch (err) {

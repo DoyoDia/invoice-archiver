@@ -23,6 +23,7 @@ export interface Tag {
 
 export interface InvoiceDetail {
   invoice: {
+    invoice_id: number;
     invoice_no: string;
     invoice_type: string | null;
     invoice_date: string | null;

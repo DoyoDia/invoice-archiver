@@ -211,16 +211,16 @@ class InvoiceRepository:
         self.session.flush()
         return tag.id, tag.name
 
-    def set_invoice_tags(self, invoice_no: str, names: List[str]) -> Optional[InvoiceRecord]:
-        db = self._latest_db(invoice_no, with_tags=True)
+    def set_invoice_tags(self, invoice_id: int, names: List[str]) -> Optional[InvoiceRecord]:
+        db = self.session.get(InvoiceDB, invoice_id)
         if db is None:
             return None
         db.tags = self._get_or_create_tags(names)
         self.session.flush()
         return self._to_record(db)
 
-    def set_deleted(self, invoice_no: str, deleted: bool) -> Optional[InvoiceRecord]:
-        db = self._latest_db(invoice_no, with_tags=True)
+    def set_deleted(self, invoice_id: int, deleted: bool) -> Optional[InvoiceRecord]:
+        db = self.session.get(InvoiceDB, invoice_id)
         if db is None:
             return None
         db.deleted = deleted

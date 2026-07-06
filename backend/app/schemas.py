@@ -69,6 +69,7 @@ class LineItemSchema(BaseModel):
 
 
 class InvoiceEntity(BaseModel):
+    invoice_id: int
     invoice_no: str
     invoice_type: Optional[str]
     invoice_date: Optional[str]

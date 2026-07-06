@@ -70,11 +70,11 @@ export const renameTag = async (id: number, name: string): Promise<Tag> => {
   return data;
 };
 
-export const setInvoiceTags = (invoiceNo: string, tags: string[]) =>
-  http.put(`/invoices/${invoiceNo}/tags`, { tags });
+export const setInvoiceTags = (invoiceId: number, tags: string[]) =>
+  http.put(`/invoices/${invoiceId}/tags`, { tags });
 
-export const setInvoiceDeleted = (invoiceNo: string, deleted: boolean) =>
-  http.post(`/invoices/${invoiceNo}/deleted`, { deleted });
+export const setInvoiceDeleted = (invoiceId: number, deleted: boolean) =>
+  http.post(`/invoices/${invoiceId}/deleted`, { deleted });
 
 export const exportInvoices = (params: ExportParams, quoteNo = false) => {
   return http.get<Blob>("/export.csv", {

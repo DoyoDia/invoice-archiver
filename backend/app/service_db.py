@@ -250,13 +250,13 @@ class InvoiceServiceDB:
             result = InvoiceRepository(session).rename_tag(tag_id, name)
             return {"id": result[0], "name": result[1]} if result else None
 
-    def set_invoice_tags(self, invoice_no: str, names: List[str]) -> Optional[InvoiceRecord]:
+    def set_invoice_tags(self, invoice_id: int, names: List[str]) -> Optional[InvoiceRecord]:
         with self.session_factory() as session:
-            return InvoiceRepository(session).set_invoice_tags(invoice_no, names)
+            return InvoiceRepository(session).set_invoice_tags(invoice_id, names)
 
-    def set_deleted(self, invoice_no: str, deleted: bool) -> Optional[InvoiceRecord]:
+    def set_deleted(self, invoice_id: int, deleted: bool) -> Optional[InvoiceRecord]:
         with self.session_factory() as session:
-            return InvoiceRepository(session).set_deleted(invoice_no, deleted)
+            return InvoiceRepository(session).set_deleted(invoice_id, deleted)
 
     def _parse_line_items(self, items: List[Dict]) -> List[InvoiceLineItem]:
         result: List[InvoiceLineItem] = []
