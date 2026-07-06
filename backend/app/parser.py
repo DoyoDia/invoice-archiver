@@ -67,19 +67,29 @@ _NAME_EXCLUDE = ("名称", "统一", "社会", "信用", "代码", "识别", "�
 
 
 def _party_names(words: List[Word]) -> Tuple[Optional[str], Optional[str]]:
-    """按位置提取购买方/销售方名称（标签“名称:”可能被拆成单字，故不依赖标签）。"""
-    cands = []
+    """按位置提取购买方/销售方名称。
+
+    兼容三种版式：名称与值分列、“名称:”被拆成单字、以及“名称：<公司名>”合并成一个词。
+    """
+    combined = {"left": None, "right": None}  # 「名称：X」合并 token（自带标签，无需限定 y）
+    standalone = []                            # 值单独成 token（需限定名称行区间以免误取）
     for x0, y0, x1, y1, t in words:
+        half = "left" if x0 < _HALF_X else "right"
+        if t.startswith("名称"):
+            val = t[2:].lstrip("：: ").strip()
+            if len(val) >= 2 and combined[half] is None:
+                combined[half] = val
+            continue
         if not (_NAME_BAND[0] <= y0 <= _NAME_BAND[1]):
             continue
         if len(t) < 3 or not any("一" <= c <= "鿿" for c in t):
             continue
         if _TAXID_RE.match(t) or any(k in t for k in _NAME_EXCLUDE):
             continue
-        cands.append((x0, t))
-    cands.sort()
-    buyer = next((t for x0, t in cands if x0 < _HALF_X), None)
-    seller = next((t for x0, t in cands if x0 >= _HALF_X), None)
+        standalone.append((x0, t))
+    standalone.sort()
+    buyer = combined["left"] or next((t for x0, t in standalone if x0 < _HALF_X), None)
+    seller = combined["right"] or next((t for x0, t in standalone if x0 >= _HALF_X), None)
     return buyer, seller
 
 
@@ -196,6 +206,17 @@ def _strip_money(text: Optional[str]) -> Optional[str]:
     return text.replace("¥", "").replace(",", "").strip() or None
 
 
+_AMOUNT_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
+
+
+def _extract_amount(text: Optional[str]) -> Optional[str]:
+    """从含金额的文本里抽出数字（兼容「(小写)¥533.00」这类标签/符号与数字合并的 token）。"""
+    if not text:
+        return None
+    m = _AMOUNT_RE.search(text.replace("¥", ""))
+    return m.group(0).replace(",", "") if m else None
+
+
 _MONEY_RE = re.compile(r"^¥?-?[\d,]+(?:\.\d+)?$")
 
 
@@ -217,9 +238,10 @@ def _parse_totals(words: List[Word], cols: Dict[str, float]):
         (t for x0, y0, x1, y1, t in words if abs(y0 - jy) <= 10 and not t.startswith("¥") and ("圆" in t or "元" in t)),
         None,
     )
+    # 小写金额：可能与「(小写)」「¥」合并成一个 token，故按数字子串提取
     grand_lower = next(
-        (_strip_money(t) for x0, y0, x1, y1, t in words
-         if abs(y0 - jy) <= 10 and x0 > 350 and _MONEY_RE.match(t) and any(c.isdigit() for c in t)),
+        (_extract_amount(t) for x0, y0, x1, y1, t in words
+         if abs(y0 - jy) <= 10 and x0 > 350 and any(c.isdigit() for c in t)),
         None,
     )
 
