@@ -12,8 +12,9 @@
 | GET | /api/invoices | 分页检索发票（含已删除，灰显） |
 | GET | /api/invoices/summary | 各状态计数（不含已删除） |
 | GET | /api/invoices/{invoice_no} | 发票详情 |
-| PUT | /api/invoices/{invoice_no}/tags | 设置某发票的标签 |
-| POST | /api/invoices/{invoice_no}/deleted | 标记/取消删除 |
+| PUT | /api/invoices/{invoice_id}/tags | 设置某发票的标签（按记录 id） |
+| POST | /api/invoices/{invoice_id}/deleted | 标记/取消删除（按记录 id） |
+| POST | /api/invoices/batch-delete | 批量标记/取消删除 |
 | GET | /api/tags | 列出/搜索标签 |
 | POST | /api/tags | 创建标签 |
 | PUT | /api/tags/{tag_id} | 重命名标签（全局生效） |
@@ -100,9 +101,11 @@
 
 ## 5. 标签与删除
 
-**PUT /api/invoices/{invoice_no}/tags** — body `{"tags": ["打车", "5月报销"]}`，整体替换该发票的标签。→ `{"ok": true, "tags": [...]}`
+**PUT /api/invoices/{invoice_id}/tags** — body `{"tags": ["打车", "5月报销"]}`，整体替换该发票的标签（按记录 id，避免同号重复发票误改到别的记录）。→ `{"ok": true, "tags": [...]}`
 
-**POST /api/invoices/{invoice_no}/deleted** — body `{"deleted": true}` 标记删除、`false` 取消。→ `{"ok": true, "deleted": true}`。已删除发票仍在列表显示（灰显、状态「删除」），但不计入统计、不被导出；重新上传同号发票会自动恢复。
+**POST /api/invoices/{invoice_id}/deleted** — body `{"deleted": true}` 标记删除、`false` 取消（按记录 id）。→ `{"ok": true, "deleted": true}`。已删除发票仍在列表显示（灰显、状态「删除」），但不计入统计、不被导出；重新上传同号发票会自动恢复，且**恢复后按解析校验取状态，不会被标记为「重复」**。
+
+**POST /api/invoices/batch-delete** — body `{"ids": [1,2,3], "deleted": true}` 批量标记/取消删除。→ `{"updated": 3}`
 
 **GET /api/tags?q=** — 列出标签（`q` 模糊搜索）→ `[{"id": 1, "name": "打车"}]`
 

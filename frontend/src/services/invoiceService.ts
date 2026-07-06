@@ -76,6 +76,9 @@ export const setInvoiceTags = (invoiceId: number, tags: string[]) =>
 export const setInvoiceDeleted = (invoiceId: number, deleted: boolean) =>
   http.post(`/invoices/${invoiceId}/deleted`, { deleted });
 
+export const batchDelete = (ids: number[], deleted: boolean) =>
+  http.post<{ updated: number }>("/invoices/batch-delete", { ids, deleted });
+
 export const exportInvoices = (params: ExportParams, quoteNo = false) => {
   return http.get<Blob>("/export.csv", {
     params: quoteNo ? { ...params, quote_no: true } : params,

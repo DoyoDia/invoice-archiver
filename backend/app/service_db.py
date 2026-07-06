@@ -44,6 +44,12 @@ class InvoiceServiceDB:
             results.extend(self._ingest_one(upload, tags, skip_dup, skip_dup_in_tag))
         return results
 
+    @staticmethod
+    def _mark_duplicate(record: InvoiceRecord) -> None:
+        record.notes = "; ".join(n for n in [record.notes, "重复发票号"] if n)
+        if record.status in (InvoiceStatus.OK, InvoiceStatus.WARN):
+            record.status = InvoiceStatus.DUPLICATE
+
     def _should_skip(self, repo: InvoiceRepository, invoice_no: str, tags: List[str], skip_dup: bool, skip_dup_in_tag: bool) -> bool:
         if not invoice_no:
             return False
@@ -105,7 +111,13 @@ class InvoiceServiceDB:
                         })
                         continue
                     revived = repo.revive_if_deleted(record) if record.invoice_no else None
-                    final = revived or repo.create_invoice(record)
+                    if revived is None:
+                        # 新建：若已有同号活跃记录，标记为重复
+                        if record.invoice_no and repo.count_active_by_invoice_no(record.invoice_no) > 0:
+                            self._mark_duplicate(record)
+                        final = repo.create_invoice(record)
+                    else:
+                        final = revived
                     created += 1
                     results.append({
                         "file_id": asset.id,
@@ -185,11 +197,8 @@ class InvoiceServiceDB:
             if item.tax_rate is not None and allowed and item.tax_rate not in allowed:
                 warn(f"项目[{idx}]税率异常: {item.tax_rate}%")
 
-        if invoice_no and repo.count_active_by_invoice_no(invoice_no) > 0:
-            notes.append("重复发票号")
-            if record_status in (InvoiceStatus.OK, InvoiceStatus.WARN):
-                record_status = InvoiceStatus.DUPLICATE
-
+        # 「重复」判定不在此处：仅新建记录时判重（见 _ingest_one）；
+        # 恢复已删除记录时保留解析校验状态，不再标记为重复。
         return InvoiceRecord(
             id=None,
             invoice_no=invoice_no,
@@ -257,6 +266,11 @@ class InvoiceServiceDB:
     def set_deleted(self, invoice_id: int, deleted: bool) -> Optional[InvoiceRecord]:
         with self.session_factory() as session:
             return InvoiceRepository(session).set_deleted(invoice_id, deleted)
+
+    def set_deleted_batch(self, invoice_ids: List[int], deleted: bool) -> int:
+        with self.session_factory() as session:
+            repo = InvoiceRepository(session)
+            return sum(1 for i in invoice_ids if repo.set_deleted(i, deleted) is not None)
 
     def _parse_line_items(self, items: List[Dict]) -> List[InvoiceLineItem]:
         result: List[InvoiceLineItem] = []

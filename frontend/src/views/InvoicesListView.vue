@@ -50,6 +50,11 @@
     <a-alert v-if="invoiceStore.error" type="error" :message="invoiceStore.error" show-icon class="mt-16" />
 
     <a-card class="mt-16">
+      <div class="batch-bar">
+        <span class="muted">已选 {{ selectedRowKeys.length }} 项</span>
+        <a-button size="small" :disabled="!selectedRowKeys.length" @click="onBatchDeleted(true)">批量标记删除</a-button>
+        <a-button size="small" :disabled="!selectedRowKeys.length" @click="onBatchDeleted(false)">批量取消删除</a-button>
+      </div>
       <a-table
         :data-source="invoiceStore.pageData.items"
         :columns="columns"
@@ -57,6 +62,7 @@
         row-key="invoice_id"
         :loading="invoiceStore.loading"
         :row-class-name="rowClassName"
+        :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
         @change="onTableChange"
       >
         <template #bodyCell="{ column, record }">
@@ -139,6 +145,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { useInvoiceStore } from "../stores/invoiceStore";
 import {
+  batchDelete,
   createTag,
   deleteTag,
   exportInvoices,
@@ -249,6 +256,24 @@ const saveTagEdit = async () => {
 };
 
 const rowClassName = (record: InvoiceSummaryRecord) => (record.deleted ? "row-deleted" : "");
+
+const selectedRowKeys = ref<number[]>([]);
+const onSelectChange = (keys: (string | number)[]) => {
+  selectedRowKeys.value = keys.map(Number);
+};
+
+const onBatchDeleted = async (deleted: boolean) => {
+  if (!selectedRowKeys.value.length) return;
+  try {
+    const { data } = await batchDelete(selectedRowKeys.value, deleted);
+    message.success(`${deleted ? "已标记删除" : "已取消删除"} ${data.updated} 张`);
+    selectedRowKeys.value = [];
+    invoiceStore.loadInvoices({});
+    refreshSummary();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+};
 
 const onToggleDeleted = async (record: InvoiceSummaryRecord) => {
   try {
@@ -381,6 +406,13 @@ onMounted(() => {
 
 .muted {
   color: #bfbfbf;
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .tag-manage {

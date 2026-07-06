@@ -37,6 +37,7 @@ from backend.app.config import load_settings
 from backend.app.db_session import DatabaseManager
 from backend.app.dependencies import get_service, get_settings
 from backend.app.schemas import (
+    BatchDeleteRequest,
     CreateTagRequest,
     IngestResultItem,
     InvoiceDetailResponse,
@@ -177,6 +178,12 @@ def build_app() -> FastAPI:
         if not result:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
         return TagItem(**result)
+
+    @router.post("/invoices/batch-delete")
+    def batch_delete(
+        body: BatchDeleteRequest, service: InvoiceServiceDB = Depends(get_service)
+    ) -> Dict[str, int]:
+        return {"updated": service.set_deleted_batch(body.ids, body.deleted)}
 
     @router.put("/invoices/{invoice_id}/tags")
     def set_invoice_tags(

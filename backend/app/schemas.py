@@ -35,6 +35,11 @@ class SetDeletedRequest(BaseModel):
     deleted: bool
 
 
+class BatchDeleteRequest(BaseModel):
+    ids: List[int]
+    deleted: bool
+
+
 class InvoiceListItem(BaseModel):
     invoice_id: int
     invoice_no: str
